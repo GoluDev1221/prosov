@@ -1,18 +1,39 @@
-import React from 'react';
+
+import React, { useState, useEffect } from 'react';
 import { useStore } from '../store';
-import { getDaysRemaining, formatCurrency, getRandomQuote } from '../utils';
+import { EXAM_DATE } from '../constants';
+import { formatCurrency, getRandomQuote } from '../utils';
 import { POWER_LAWS } from '../constants';
-import { TrendingUp, Activity, Skull } from 'lucide-react';
+import { TrendingUp, Activity, Skull, Book, User } from 'lucide-react';
 
 interface Props {
   defcon: number;
 }
 
 export const Command: React.FC<Props> = ({ defcon }) => {
-  const { netWorth, efficiency, calculateCAGR, streak, globalEvents } = useStore();
-  const daysRemaining = getDaysRemaining();
+  const { netWorth, efficiency, calculateCAGR, streak, globalEvents, callsign, toggleManual, toggleProfile } = useStore();
   const projectedNW = calculateCAGR();
   const quote = getRandomQuote(POWER_LAWS);
+  
+  const [countdown, setCountdown] = useState('');
+
+  // Real-time countdown
+  useEffect(() => {
+      const interval = setInterval(() => {
+          const now = Date.now();
+          const diff = EXAM_DATE - now;
+          if (diff <= 0) {
+              setCountdown("IMPACT DETECTED");
+              return;
+          }
+          const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+          const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+          const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+          const seconds = Math.floor((diff % (1000 * 60)) / 1000);
+          setCountdown(`${days}D ${hours}H ${minutes}M ${seconds}S`);
+      }, 1000);
+      return () => clearInterval(interval);
+  }, []);
   
   const isDanger = defcon < 3;
   const primaryColor = isDanger ? 'text-red-500' : 'text-[#00f7ff]';
@@ -21,9 +42,21 @@ export const Command: React.FC<Props> = ({ defcon }) => {
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
       
+      {/* Action Bar */}
+      <div className="flex gap-2">
+          <button onClick={toggleProfile} className="flex-1 bg-[#111] border border-gray-800 p-3 flex items-center justify-center gap-2 hover:border-[#00f7ff] transition-colors">
+              <User size={16} className="text-[#00f7ff]" />
+              <span className="text-xs font-bold text-white">PROFILE</span>
+          </button>
+          <button onClick={toggleManual} className="flex-1 bg-[#111] border border-gray-800 p-3 flex items-center justify-center gap-2 hover:border-[#00f7ff] transition-colors">
+              <Book size={16} className="text-[#00f7ff]" />
+              <span className="text-xs font-bold text-white">MANUAL</span>
+          </button>
+      </div>
+
       {/* Laws of Power */}
       <div className={`border-l-2 ${borderColor} bg-white/5 p-4`}>
-        <p className="text-[10px] text-gray-500 mb-1">STRATEGIC DIRECTIVE</p>
+        <p className="text-[10px] text-gray-500 mb-1">STRATEGIC DIRECTIVE // {callsign}</p>
         <p className={`text-sm font-bold ${primaryColor} glitch-text`}>{quote}</p>
       </div>
 
@@ -73,8 +106,8 @@ export const Command: React.FC<Props> = ({ defcon }) => {
         <div className={`absolute top-0 left-0 w-1 h-full ${isDanger ? 'bg-red-500' : 'bg-[#00f7ff]'}`}></div>
         <div className="flex justify-between items-end relative z-10">
           <div>
-            <h2 className="text-4xl font-black">{daysRemaining}</h2>
-            <p className="text-xs tracking-[0.3em] mt-1">DAYS TO IMPACT</p>
+            <h2 className="text-2xl font-black">{countdown}</h2>
+            <p className="text-xs tracking-[0.3em] mt-1">TIME TO IMPACT</p>
           </div>
           <Skull size={48} className={`opacity-20 ${primaryColor}`} />
         </div>
@@ -83,7 +116,7 @@ export const Command: React.FC<Props> = ({ defcon }) => {
 
       <div className="flex justify-between text-xs text-gray-600 font-mono">
         <span>STREAK: {streak} DAYS</span>
-        <span>ID: SOVEREIGN_V4</span>
+        <span>ID: {callsign}</span>
       </div>
 
       <style>{`
