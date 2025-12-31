@@ -115,6 +115,9 @@ export const useStore = create<UserState & StoreActions>()(
       stopMining: async (success, durationMinutes) => {
         const state = get();
         
+        // Guard clause: Prevent double-execution if mining already stopped (e.g., via listener)
+        if (!state.isMining) return 0;
+
         // --- FAILURE LOGIC ---
         if (!success) {
            // 1. Calculate Base Penalty (20% of Remaining Net Worth)
@@ -372,7 +375,6 @@ export const useStore = create<UserState & StoreActions>()(
                   host_id: state.id,
                   wager: wager,
                   status: 'OPEN',
-                  // Ensure DB has 'duration' column
                   duration: duration 
               });
               
@@ -577,7 +579,7 @@ export const useStore = create<UserState & StoreActions>()(
 
               // A. Global Events
               networkChannel.on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'global_events' }, (payload) => {
-                    const newEvent = payload.new;
+                    const newEvent = payload.new as any;
                     set(state => ({
                         globalEvents: [{
                             id: newEvent.id,
@@ -605,7 +607,8 @@ export const useStore = create<UserState & StoreActions>()(
                     if (state.activeDuelId && newRecord && newRecord.id === state.activeDuelId) {
                          // Win via Forfeit (Opponent resigned/failed)
                          if (newRecord.winner_id === state.id) {
-                             get().stopMining(true, 0); // Trigger Success (Duration irrelevant for forfeit win)
+                             // Use 'true' for success, duration is irrelevant for forfeit
+                             get().stopMining(true, 0); 
                              alert("VICTORY: OPPONENT CONNECTION LOST");
                          }
                     }
@@ -614,7 +617,6 @@ export const useStore = create<UserState & StoreActions>()(
               });
 
               // C. Syndicate Sync
-              // We listen to ALL syndicate updates and filter in callback to support changing syndicates dynamically
               networkChannel.on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'syndicates' }, (payload) => {
                   const state = get();
                   const newData = payload.new as any;
