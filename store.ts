@@ -10,6 +10,7 @@ interface StoreActions {
   updateProfile: (callsign: string, bio: string) => void;
   toggleManual: () => void;
   toggleProfile: () => void;
+  signOut: () => void; // Added
   
   // Gameplay
   setArchetype: (a: Archetype) => void;
@@ -75,6 +76,12 @@ export const useStore = create<UserState & StoreActions>()(
 
       // --- ACTIONS ---
 
+      signOut: async () => {
+          await supabase.auth.signOut();
+          localStorage.clear();
+          window.location.reload();
+      },
+
       updateProfile: (callsign, bio) => {
           set({ callsign, bio });
           get().syncToCloud();
@@ -114,7 +121,6 @@ export const useStore = create<UserState & StoreActions>()(
 
             if (error) {
                 console.error("Mining Sync Failed:", error);
-                // Fail silently on UI, but logging error
             }
 
             const earned = yieldAmount || 0;
@@ -122,9 +128,9 @@ export const useStore = create<UserState & StoreActions>()(
             set({ 
               isMining: false, 
               miningStartTime: null, 
-              netWorth: state.netWorth + earned, // Optimistic update, but source of truth is DB
+              netWorth: state.netWorth + earned, // Optimistic update
               lastActive: Date.now(),
-              streak: state.streak // Streak logic ideally moves to server too
+              streak: state.streak 
             });
             
              if (durationMinutes > 15) {
@@ -175,8 +181,6 @@ export const useStore = create<UserState & StoreActions>()(
       createSyndicate: async (name) => {
           const state = get();
           const code = Math.random().toString(36).substring(2, 7).toUpperCase();
-          
-          // GENERATE VALID UUID
           const syndicateId = crypto.randomUUID(); 
 
           const newSyndicate: SyndicateData = {
@@ -204,7 +208,6 @@ export const useStore = create<UserState & StoreActions>()(
                   members: newSyndicate.members
               });
               if (error) {
-                  console.error("Syndicate Create Error:", error);
                   alert("FAILED TO CREATE SYNDICATE");
                   return;
               }
@@ -239,7 +242,6 @@ export const useStore = create<UserState & StoreActions>()(
                   rank: 'INITIATE'
               };
 
-              // Note: Secure app would use an RPC here too to prevent overwriting members
               await supabase.from('syndicates').update({
                   members: [...currentMembers, newMember]
               }).eq('id', data.id);
@@ -261,11 +263,9 @@ export const useStore = create<UserState & StoreActions>()(
 
       leaveSyndicate: async () => {
           set({ syndicate: null });
-          // In secure app: Call DB to remove self
       },
 
       promoteMember: async (memberId) => {
-          // Logic remains similar, should call DB update
           const state = get();
           if (!state.syndicate || state.syndicate.commanderId !== state.id) return;
           
@@ -288,8 +288,6 @@ export const useStore = create<UserState & StoreActions>()(
       createDuelLobby: async (wager) => {
           const state = get();
           if (state.netWorth < wager) return;
-          
-          // GENERATE VALID UUID
           const lobbyId = crypto.randomUUID();
 
           if (isSupabaseConfigured()) {
@@ -341,7 +339,6 @@ export const useStore = create<UserState & StoreActions>()(
         if (state.archetype === 'STRATEGIST' && tierConfig.category === 'THEORY') cost = cost * 0.85;
         if (state.archetype === 'VANGUARD' && tierConfig.category === 'COMBAT') cost = cost * 0.85;
 
-        // Optimistic check
         if (state.netWorth < cost) {
             alert("INSUFFICIENT FUNDS TO ANNEX TERRITORY");
             return;
@@ -375,10 +372,8 @@ export const useStore = create<UserState & StoreActions>()(
 
         set({
           syllabus: updatedSyllabus,
-          netWorth: state.netWorth - cost // RPC already did this on server, but we update UI
+          netWorth: state.netWorth - cost
         });
-        
-        // No need to syncToCloud here as RPC did it
       },
 
       updateDecay: () => {
@@ -407,14 +402,12 @@ export const useStore = create<UserState & StoreActions>()(
       syncToCloud: async () => {
           if (!isSupabaseConfigured()) return;
           const state = get();
-          if (!state.id) return; // Wait for Auth
+          if (!state.id) return; 
 
-          // Standard update for non-critical fields (bio, etc)
           await supabase.from('profiles').update({
               callsign: state.callsign,
-              // We DO NOT update net_worth here anymore to prevent overwriting server calc
               data: { 
-                  efficiency: state.efficiency, // Persist efficiency
+                  efficiency: state.efficiency, 
                   inventory: state.inventory,
                   syndicate: state.syndicate,
                   bio: state.bio
@@ -431,28 +424,22 @@ export const useStore = create<UserState & StoreActions>()(
           set({ onlineStatus: 'CONNECTING' });
 
           try {
-              // 1. AUTHENTICATION (The Key to Security)
+              // 1. AUTHENTICATION CHECK
               const { data: { session } } = await supabase.auth.getSession();
-              let userId = session?.user?.id;
-
-              if (!userId) {
-                  const { data: authData, error: authError } = await supabase.auth.signInAnonymously();
-                  if (authError) throw authError;
-                  userId = authData.user?.id;
-              }
+              const userId = session?.user?.id;
 
               if (userId) {
                   set({ id: userId });
                   
                   // 2. Fetch or Create Profile
-                  const { data: profile, error } = await supabase
+                  const { data: profile } = await supabase
                     .from('profiles')
                     .select('*')
                     .eq('id', userId)
                     .single();
 
                   if (!profile) {
-                      // Init new profile
+                      // Init new profile logic handled in Auth component usually, or here as fallback
                       await supabase.from('profiles').insert({
                           id: userId,
                           callsign: `OPERATOR-${userId.substring(0,4).toUpperCase()}`,
@@ -466,15 +453,40 @@ export const useStore = create<UserState & StoreActions>()(
                           netWorth: profile.net_worth,
                           archetype: profile.archetype,
                           syllabus: profile.data?.syllabus || INITIAL_SYLLABUS,
-                          efficiency: profile.data?.efficiency || 1.0
-                          // ... other fields
+                          efficiency: profile.data?.efficiency || 1.0,
+                          inventory: profile.data?.inventory || get().inventory,
+                          syndicate: profile.data?.syndicate || get().syndicate,
+                          bio: profile.data?.bio || get().bio
                       });
                   }
               }
 
               // 3. Subscriptions (Realtime)
-              // ... existing subscription logic ...
-              set({ onlineStatus: 'ONLINE' });
+              supabase
+                .channel('public:network')
+                .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'global_events' }, (payload) => {
+                    const newEvent = payload.new;
+                    set(state => ({
+                        globalEvents: [{
+                            id: newEvent.id,
+                            message: newEvent.message,
+                            type: newEvent.type as any,
+                            timestamp: new Date(newEvent.created_at).getTime()
+                        }, ...state.globalEvents].slice(0, 50)
+                    }));
+                })
+                .on('postgres_changes', { event: '*', schema: 'public', table: 'duel_lobbies' }, () => {
+                    get().refreshLobbies();
+                })
+                .subscribe((status) => {
+                    if (status === 'SUBSCRIBED') {
+                        set({ onlineStatus: 'ONLINE' });
+                    } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+                        set({ onlineStatus: 'ERROR' });
+                    }
+                });
+                
+              get().refreshLobbies();
 
           } catch (e) {
               console.error("Network Link Failed:", e);
