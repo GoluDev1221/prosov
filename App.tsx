@@ -11,10 +11,11 @@ import { Arena } from './components/Arena';
 import { Syndicates } from './components/Syndicates';
 import { Manual } from './components/Manual';
 import { Profile } from './components/Profile';
+import { Auth } from './components/Auth';
 import { Shield, Map, Cpu, ShoppingBag, Swords, Terminal, Wifi, Radio, Users, WifiOff } from 'lucide-react';
 
 const App: React.FC = () => {
-  const { archetype, isMining, updateDecay, connectToNetwork, onlineStatus, activeUsers, showManual, showProfile } = useStore();
+  const { id, archetype, isMining, updateDecay, connectToNetwork, onlineStatus, activeUsers, showManual, showProfile } = useStore();
   const [currentView, setCurrentView] = useState<'COMMAND' | 'INTEL' | 'MARKET' | 'ARENA' | 'SYNDICATE'>('COMMAND');
   const [defcon, setDefcon] = useState(5);
 
@@ -23,9 +24,15 @@ const App: React.FC = () => {
     updateDecay();
     const days = getDaysRemaining();
     setDefcon(getDefconLevel(days));
-    connectToNetwork(); // Initiate "Connection"
+    connectToNetwork(); // This now just checks for existing session
   }, []);
 
+  // 1. If not authenticated, show Auth Screen
+  if (!id) {
+    return <Auth />;
+  }
+
+  // 2. If authenticated but no archetype, show Selector
   if (!archetype) {
     return <ArchetypeSelector />;
   }
