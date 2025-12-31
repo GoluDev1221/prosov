@@ -24,8 +24,8 @@ const App: React.FC = () => {
     updateDecay();
     const days = getDaysRemaining();
     setDefcon(getDefconLevel(days));
-    connectToNetwork(); // This now just checks for existing session
-  }, []);
+    connectToNetwork(); 
+  }, [id]); // Re-run when ID changes (login/logout)
 
   // 1. If not authenticated, show Auth Screen
   if (!id) {
