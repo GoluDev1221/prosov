@@ -1,13 +1,13 @@
 
 import React, { useEffect, useState } from 'react';
-import { Swords, Users, Globe, Plus, Play } from 'lucide-react';
+import { Swords, Users, Globe, Plus, Play, Clock } from 'lucide-react';
 import { useStore } from '../store';
 import { formatCurrency } from '../utils';
 import { InfoTooltip } from './InfoTooltip';
 
 export const Arena: React.FC = () => {
   const { activeUsers, netWorth, activeLobbies, createDuelLobby, joinDuelLobby, refreshLobbies, callsign } = useStore();
-  const [wagerInput, setWagerInput] = useState(50); // Lowered from 500
+  const [durationInput, setDurationInput] = useState(30); // Default 30 mins
 
   useEffect(() => {
       refreshLobbies();
@@ -15,9 +15,11 @@ export const Arena: React.FC = () => {
       return () => clearInterval(interval);
   }, []);
 
+  const wagerCost = durationInput * 50;
+
   const handleCreate = () => {
-      if (wagerInput > netWorth) return;
-      createDuelLobby(wagerInput);
+      if (wagerCost > netWorth) return;
+      createDuelLobby(durationInput);
   };
 
   return (
@@ -58,23 +60,30 @@ export const Arena: React.FC = () => {
         {/* Create Contract */}
         <div className="bg-black/50 border border-gray-800 p-4 mb-6">
             <h3 className="text-xs font-bold text-gray-400 mb-3">CREATE CONTRACT</h3>
-            <div className="flex gap-4">
-                <input 
-                    type="number" 
-                    value={wagerInput}
-                    onChange={(e) => setWagerInput(Number(e.target.value))}
-                    className="bg-black border border-gray-700 p-2 text-white w-32 outline-none focus:border-[#00f7ff]"
-                    min={50}
-                />
+            <div className="flex gap-4 items-end">
+                <div className="space-y-1">
+                    <label className="text-[10px] text-gray-500">DURATION (MINUTES)</label>
+                    <input 
+                        type="number" 
+                        value={durationInput}
+                        onChange={(e) => setDurationInput(Math.max(1, Number(e.target.value)))}
+                        className="bg-black border border-gray-700 p-2 text-white w-32 outline-none focus:border-[#00f7ff]"
+                        min={1}
+                        max={180}
+                    />
+                </div>
+                <div className="flex-1 pb-2">
+                    <div className="text-[10px] text-gray-500">REQUIRED WAGER (50/MIN)</div>
+                    <div className="text-lg font-bold text-[#00f7ff]">{formatCurrency(wagerCost)}</div>
+                </div>
                 <button 
                     onClick={handleCreate}
-                    disabled={netWorth < wagerInput}
-                    className="flex-1 bg-[#00f7ff]/10 border border-[#00f7ff] text-[#00f7ff] font-bold text-xs hover:bg-[#00f7ff] hover:text-black transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+                    disabled={netWorth < wagerCost}
+                    className="bg-[#00f7ff]/10 border border-[#00f7ff] text-[#00f7ff] font-bold text-xs hover:bg-[#00f7ff] hover:text-black transition-all flex items-center justify-center gap-2 disabled:opacity-50 h-10 px-4"
                 >
-                    <Plus size={16} /> POST WAGER
+                    <Plus size={16} /> POST
                 </button>
             </div>
-            <p className="text-[10px] text-gray-600 mt-2">MIN WAGER: $50</p>
         </div>
 
         {/* Lobby List */}
@@ -92,7 +101,10 @@ export const Arena: React.FC = () => {
                          <div key={lobby.id} className="bg-[#111] border border-gray-800 p-3 flex justify-between items-center group hover:border-red-500 transition-colors">
                              <div>
                                  <span className="text-red-500 font-bold text-sm">VS {lobby.hostName}</span>
-                                 <p className="text-[10px] text-gray-500">ID: {lobby.id.substring(0,8)}...</p>
+                                 <div className="flex items-center gap-2 text-[10px] text-gray-400 mt-1">
+                                    <Clock size={10} />
+                                    <span>{lobby.duration || Math.floor(lobby.wager/50)} MIN</span>
+                                 </div>
                              </div>
                              <div className="flex items-center gap-4">
                                  <span className="text-white font-mono">{formatCurrency(lobby.wager)}</span>
