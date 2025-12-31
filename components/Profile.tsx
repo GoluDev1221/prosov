@@ -7,7 +7,7 @@ import { supabase } from '../supabaseClient';
 import { InfoTooltip } from './InfoTooltip';
 
 export const Profile: React.FC = () => {
-  const { toggleProfile, callsign, bio, updateProfile, archetype, netWorth, streak, startDate, signOut } = useStore();
+  const { toggleProfile, callsign, bio, updateProfile, archetype, netWorth, streak, startDate, signOut, syllabus } = useStore();
   
   const [tab, setTab] = useState<'ME' | 'NETWORK'>('ME');
   const [localCallsign, setLocalCallsign] = useState(callsign);
@@ -23,6 +23,11 @@ export const Profile: React.FC = () => {
   };
 
   const daysActive = Math.floor((Date.now() - startDate) / (1000 * 60 * 60 * 24));
+  
+  // New Clearance Logic: Total Tiers Annexed
+  const totalAnnexed = syllabus.reduce((acc, chapter) => {
+      return acc + chapter.tiers.filter(t => t.completed).length;
+  }, 0);
 
   const handleSearch = async () => {
       setSearching(true);
@@ -115,9 +120,9 @@ export const Profile: React.FC = () => {
              <div className="bg-[#111] p-3 border border-gray-800">
                  <div className="text-[10px] text-gray-500 flex items-center gap-1">
                     CLEARANCE
-                    <InfoTooltip text="Your security level based on Net Worth." />
+                    <InfoTooltip text="Level increases with every territory tier annexed." />
                  </div>
-                 <div className="text-lg text-white font-bold">LVL {Math.floor(netWorth / 2500)}</div>
+                 <div className="text-lg text-white font-bold">LVL {totalAnnexed}</div>
              </div>
           </div>
           
