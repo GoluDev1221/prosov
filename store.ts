@@ -439,10 +439,15 @@ export const useStore = create<UserState & StoreActions>()(
                     .single();
 
                   if (!profile) {
-                      // Init new profile logic handled in Auth component usually, or here as fallback
+                      // FALLBACK: If Auth.tsx created auth user but failed to create profile (rare), do it here.
+                      // Try to derive username from email (user@project-sovereign.local)
+                      const derivedName = session.user.email 
+                         ? session.user.email.split('@')[0].toUpperCase() 
+                         : `OPERATIVE-${userId.slice(0,4)}`;
+
                       await supabase.from('profiles').insert({
                           id: userId,
-                          callsign: `OPERATOR-${userId.substring(0,4).toUpperCase()}`,
+                          callsign: derivedName,
                           net_worth: 0,
                           data: { efficiency: 1.0, syllabus: INITIAL_SYLLABUS }
                       });
