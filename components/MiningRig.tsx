@@ -6,7 +6,14 @@ import { InfoTooltip } from './InfoTooltip';
 
 export const MiningRig: React.FC = () => {
   const { stopMining, miningStartTime, miningMode, callsign } = useStore();
-  const [elapsed, setElapsed] = useState(0);
+  
+  // Initialize elapsed time based on actual start time to handle refreshes
+  const getElapsed = () => {
+      if (!miningStartTime) return 0;
+      return Math.floor((Date.now() - miningStartTime) / 1000);
+  };
+
+  const [elapsed, setElapsed] = useState(getElapsed());
   const [failed, setFailed] = useState(false);
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [studyMode, setStudyMode] = useState(false);
@@ -32,8 +39,9 @@ export const MiningRig: React.FC = () => {
             const ctx = new AudioContext();
             audioCtxRef.current = ctx;
             
+            // Resume context if suspended (browser policy)
             if (ctx.state === 'suspended') {
-                await ctx.resume();
+                try { await ctx.resume(); } catch(e) { console.warn("Audio resume failed", e); }
             }
         } catch (e) {
             console.error("Audio Init Failed", e);
@@ -53,34 +61,38 @@ export const MiningRig: React.FC = () => {
       if (!soundEnabled || !audioCtxRef.current) return;
       
       const ctx = audioCtxRef.current;
-      if (ctx.state === 'closed') return; // Safety check
+      if (ctx.state === 'closed') return;
 
-      stopSiren();
+      stopSiren(); // Clear existing
 
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      
-      osc.type = 'sawtooth';
-      gain.gain.value = 0.3; 
-      
-      osc.connect(gain);
-      gain.connect(ctx.destination);
-      osc.start();
+      try {
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          
+          osc.type = 'sawtooth';
+          gain.gain.value = 0.3; 
+          
+          osc.connect(gain);
+          gain.connect(ctx.destination);
+          osc.start();
 
-      oscRef.current = osc;
-      gainRef.current = gain;
+          oscRef.current = osc;
+          gainRef.current = gain;
 
-      const modulate = () => {
-          if (ctx.state === 'closed') return;
-          const now = ctx.currentTime;
-          osc.frequency.cancelScheduledValues(now);
-          osc.frequency.setValueAtTime(800, now);
-          osc.frequency.linearRampToValueAtTime(1500, now + 0.5);
-          osc.frequency.linearRampToValueAtTime(800, now + 1.0);
-      };
+          const modulate = () => {
+              if (ctx.state === 'closed') return;
+              const now = ctx.currentTime;
+              osc.frequency.cancelScheduledValues(now);
+              osc.frequency.setValueAtTime(800, now);
+              osc.frequency.linearRampToValueAtTime(1500, now + 0.5);
+              osc.frequency.linearRampToValueAtTime(800, now + 1.0);
+          };
 
-      modulate();
-      sirenIntervalRef.current = window.setInterval(modulate, 1000);
+          modulate();
+          sirenIntervalRef.current = window.setInterval(modulate, 1000);
+      } catch (e) {
+          console.error("Siren start failed", e);
+      }
   };
 
   const stopSiren = () => {
@@ -116,10 +128,10 @@ export const MiningRig: React.FC = () => {
       }
     };
     
+    // Accurate Timer Logic
     const timer = setInterval(() => {
         if (!miningStartTime) return;
-        const diff = Math.floor((Date.now() - miningStartTime) / 1000);
-        setElapsed(diff);
+        setElapsed(Math.floor((Date.now() - miningStartTime) / 1000));
     }, 1000);
 
     document.addEventListener('visibilitychange', handleVisibilityChange);
