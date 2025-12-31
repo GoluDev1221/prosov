@@ -1,17 +1,53 @@
+
 import React, { useState, useEffect, useRef } from 'react';
 import { useStore } from '../store';
-import { AlertOctagon, Power, Swords } from 'lucide-react';
+import { AlertOctagon, Power, Swords, Volume2, VolumeX } from 'lucide-react';
 
 export const MiningRig: React.FC = () => {
-  const { stopMining, miningStartTime, miningMode } = useStore();
+  const { stopMining, miningStartTime, miningMode, callsign } = useStore();
   const [elapsed, setElapsed] = useState(0);
   const [failed, setFailed] = useState(false);
-  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const [soundEnabled, setSoundEnabled] = useState(true);
+  
+  // Refs for Audio
+  const ambientRef = useRef<HTMLAudioElement | null>(null);
+  const sirenRef = useRef<HTMLAudioElement | null>(null);
 
   const isDuel = miningMode === 'DUEL';
   const themeColor = isDuel ? 'text-red-500' : 'text-[#00f7ff]';
   const borderColor = isDuel ? 'border-red-500' : 'border-[#00f7ff]';
   const shadowColor = isDuel ? 'shadow-[0_0_50px_rgba(239,68,68,0.2)]' : 'shadow-[0_0_50px_rgba(0,247,255,0.2)]';
+
+  // Audio Initialization
+  useEffect(() => {
+    // Ambient: Dark Drone
+    ambientRef.current = new Audio('https://cdn.pixabay.com/audio/2022/10/05/audio_6862569947.mp3');
+    ambientRef.current.loop = true;
+    ambientRef.current.volume = 0.5;
+
+    // Siren: Alarm
+    sirenRef.current = new Audio('https://cdn.pixabay.com/audio/2021/08/04/audio_0625c1539c.mp3');
+    sirenRef.current.loop = true;
+
+    if (soundEnabled) {
+        ambientRef.current.play().catch(e => console.log("Audio play failed:", e));
+    }
+
+    return () => {
+        ambientRef.current?.pause();
+        sirenRef.current?.pause();
+    };
+  }, []);
+
+  // Toggle Sound
+  useEffect(() => {
+      if (!ambientRef.current) return;
+      if (soundEnabled && !failed) {
+          ambientRef.current.play().catch(() => {});
+      } else {
+          ambientRef.current.pause();
+      }
+  }, [soundEnabled, failed]);
 
   // Focus Logic
   useEffect(() => {
@@ -37,8 +73,11 @@ export const MiningRig: React.FC = () => {
   }, [miningStartTime]);
 
   const triggerSiren = () => {
-    // In a real app, play a loud oscillator sound here
-    if (navigator.vibrate) navigator.vibrate([200, 100, 200]);
+    if (navigator.vibrate) navigator.vibrate([200, 100, 200, 100, 200]);
+    ambientRef.current?.pause();
+    if (soundEnabled) {
+        sirenRef.current?.play().catch(() => {});
+    }
   };
 
   const handleStop = () => {
@@ -70,6 +109,15 @@ export const MiningRig: React.FC = () => {
 
   return (
     <div className="fixed inset-0 bg-black z-50 flex flex-col items-center justify-center p-4">
+      
+      {/* Sound Toggle */}
+      <button 
+        onClick={() => setSoundEnabled(!soundEnabled)}
+        className="absolute top-4 right-4 text-gray-500 hover:text-white"
+      >
+          {soundEnabled ? <Volume2 /> : <VolumeX />}
+      </button>
+
       <div className={`w-64 h-64 border-2 ${borderColor} rounded-full flex items-center justify-center relative ${shadowColor}`}>
         <div className={`absolute inset-0 border-t-2 ${borderColor} rounded-full animate-spin`}></div>
         <div className={`text-5xl font-mono ${themeColor} font-bold`}>
@@ -80,6 +128,7 @@ export const MiningRig: React.FC = () => {
       <div className="mt-8 text-center space-y-2">
         <p className="text-gray-500 tracking-widest text-xs">{isDuel ? 'DUEL IN PROGRESS' : 'MINING IN PROGRESS...'}</p>
         <p className={`${themeColor} text-sm animate-pulse`}>{isDuel ? 'OPPONENT ACTIVE - DO NOT YIELD' : 'DO NOT EXIT THE MATRIX'}</p>
+        <p className="text-[10px] text-gray-600">OPERATOR: {callsign}</p>
       </div>
 
       <div className="mt-12 w-full max-w-xs">
