@@ -1,15 +1,17 @@
+
 import React from 'react';
 import { useStore } from '../store';
 import { formatCurrency } from '../utils';
 import { Zap, EyeOff, Snowflake, Clock } from 'lucide-react';
+import { InfoTooltip } from './InfoTooltip';
 
 export const BlackMarket: React.FC = () => {
   const { netWorth, buyItem, inventory } = useStore();
 
-  const items: {id: 'NEURAL' | 'CRYO' | 'GHOST', name: string, cost: number, desc: string, icon: any}[] = [
-    { id: 'NEURAL', name: 'NEURAL STIMULANT', cost: 5000, desc: '2x Yield Multiplier (1hr)', icon: <Zap size={20}/> },
-    { id: 'CRYO', name: 'CRYO-STASIS', cost: 2000, desc: 'Freeze Streak for 24h', icon: <Snowflake size={20}/> },
-    { id: 'GHOST', name: 'GHOST PROTOCOL', cost: 10000, desc: 'Hide from Global Ticker', icon: <EyeOff size={20}/> },
+  const items: {id: 'NEURAL' | 'CRYO' | 'GHOST', name: string, cost: number, desc: string, icon: any, tip: string}[] = [
+    { id: 'NEURAL', name: 'NEURAL STIMULANT', cost: 5000, desc: '2x Yield Multiplier (1hr)', icon: <Zap size={20}/>, tip: "Doubles the $NW generated from mining for 1 hour." },
+    { id: 'CRYO', name: 'CRYO-STASIS', cost: 2000, desc: 'Freeze Streak for 24h', icon: <Snowflake size={20}/>, tip: "Prevents streak reset if you miss a day of study." },
+    { id: 'GHOST', name: 'GHOST PROTOCOL', cost: 10000, desc: 'Hide from Global Ticker', icon: <EyeOff size={20}/>, tip: "Your actions will not appear on the global feed for 24h." },
   ];
 
   const now = Date.now();
@@ -59,7 +61,10 @@ export const BlackMarket: React.FC = () => {
                 <div className="flex items-center gap-3">
                     <div className="p-2 bg-black border border-gray-700 text-[#00f7ff]">{item.icon}</div>
                     <div>
-                        <h3 className="font-bold text-sm">{item.name}</h3>
+                        <h3 className="font-bold text-sm flex items-center">
+                            {item.name}
+                            <InfoTooltip text={item.tip} />
+                        </h3>
                         <p className="text-[10px] text-gray-500">{item.desc}</p>
                     </div>
                 </div>
