@@ -103,12 +103,26 @@ export const useStore = create<UserState & StoreActions>()(
 
       stopMining: async (success, durationMinutes) => {
         const state = get();
-        const isDuel = state.miningMode === 'DUEL';
         
         if (!success) {
-          const penalty = Math.floor(state.netWorth * 0.05);
-           set({ isMining: false, miningStartTime: null, netWorth: Math.max(0, state.netWorth - penalty) });
-           state.pushGlobalEvent(`${state.callsign} FAILED PROTOCOL (-$${penalty})`, 'COMBAT');
+           // 1. Calculate Base Penalty (20% of Net Worth)
+           let penalty = Math.floor(state.netWorth * 0.20);
+           
+           // 2. Apply Sentinel Archetype Perk (50% Damage Reduction)
+           if (state.archetype === 'SENTINEL') {
+               penalty = Math.floor(penalty * 0.5);
+           }
+
+           // Ensure at least 1 NW is lost if they have any, to maintain "High Stakes" feel
+           if (state.netWorth > 0 && penalty === 0) penalty = 1;
+
+           set({ 
+               isMining: false, 
+               miningStartTime: null, 
+               netWorth: Math.max(0, state.netWorth - penalty) 
+           });
+
+           state.pushGlobalEvent(`${state.callsign} FAILED PROTOCOL (-${penalty} $NW)`, 'COMBAT');
            return -penalty;
         }
 
