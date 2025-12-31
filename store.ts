@@ -30,7 +30,7 @@ interface StoreActions {
   promoteMember: (memberId: string) => void;
 
   // PvP Actions
-  createDuelLobby: (wager: number) => void;
+  createDuelLobby: (duration: number) => void;
   joinDuelLobby: (lobbyId: string) => void;
   refreshLobbies: () => void;
 
@@ -180,6 +180,10 @@ export const useStore = create<UserState & StoreActions>()(
       // --- SYNDICATE LOGIC ---
       createSyndicate: async (name) => {
           const state = get();
+          const COST = 10;
+          
+          if (state.netWorth < COST) return;
+
           const code = Math.random().toString(36).substring(2, 7).toUpperCase();
           const syndicateId = crypto.randomUUID(); 
 
@@ -187,12 +191,12 @@ export const useStore = create<UserState & StoreActions>()(
               id: syndicateId,
               name,
               code,
-              wealth: state.netWorth,
+              wealth: state.netWorth - COST,
               commanderId: state.id,
               members: [{
                   id: state.id,
                   name: state.callsign,
-                  netWorth: state.netWorth,
+                  netWorth: state.netWorth - COST,
                   status: 'ONLINE',
                   rank: 'COMMANDER'
               }]
@@ -213,13 +217,22 @@ export const useStore = create<UserState & StoreActions>()(
               }
           }
 
-          set({ syndicate: newSyndicate });
+          set({ 
+              syndicate: newSyndicate,
+              netWorth: state.netWorth - COST 
+          });
           get().pushGlobalEvent(`${state.callsign} ESTABLISHED SYNDICATE [${name}]`, 'SYSTEM');
           get().syncToCloud();
       },
 
       joinSyndicate: async (code) => {
           const state = get();
+          const COST = 5;
+          
+          if (state.netWorth < COST) {
+              alert("INSUFFICIENT FUNDS TO JOIN SYNDICATE ($5 REQUIRED)");
+              return;
+          }
           
           if (isSupabaseConfigured()) {
               const { data, error } = await supabase
@@ -237,27 +250,32 @@ export const useStore = create<UserState & StoreActions>()(
               const newMember = {
                   id: state.id,
                   name: state.callsign,
-                  netWorth: state.netWorth,
+                  netWorth: state.netWorth - COST,
                   status: 'ONLINE',
                   rank: 'INITIATE'
               };
 
+              const newWealth = (data.wealth || 0) + COST;
+              
               await supabase.from('syndicates').update({
-                  members: [...currentMembers, newMember]
+                  members: [...currentMembers, newMember],
+                  wealth: newWealth
               }).eq('id', data.id);
 
               const syndicateData: SyndicateData = {
                   id: data.id,
                   name: data.name,
                   code: data.code,
-                  wealth: data.wealth,
+                  wealth: newWealth,
                   commanderId: data.commander_id,
                   members: [...currentMembers, newMember]
               };
 
-              set({ syndicate: syndicateData });
-              get().pushGlobalEvent(`${state.callsign} JOINED FACTION ${data.name}`, 'SYSTEM');
-
+              set({ 
+                  syndicate: syndicateData,
+                  netWorth: state.netWorth - COST
+              });
+              get().pushGlobalEvent(`${state.callsign} JOINED FACTION ${data.name} (CONTRIBUTED $5)`, 'SYSTEM');
           }
       },
 
@@ -285,8 +303,10 @@ export const useStore = create<UserState & StoreActions>()(
       },
 
       // --- PVP LOGIC ---
-      createDuelLobby: async (wager) => {
+      createDuelLobby: async (duration) => {
           const state = get();
+          const wager = duration * 50;
+          
           if (state.netWorth < wager) return;
           const lobbyId = crypto.randomUUID();
 
@@ -295,11 +315,13 @@ export const useStore = create<UserState & StoreActions>()(
                   id: lobbyId,
                   host_name: state.callsign,
                   wager: wager,
-                  status: 'OPEN'
+                  status: 'OPEN',
+                  // Note: Duration column might need to be added to Supabase manually if strict schema, 
+                  // but typically JSONB or flexible schema handles it. For now, we store in lobby object.
               });
               if (error) console.error("Lobby Create Error:", error);
           }
-          set(s => ({ activeLobbies: [{ id: lobbyId, hostName: state.callsign, wager, status: 'OPEN' }, ...s.activeLobbies] }));
+          set(s => ({ activeLobbies: [{ id: lobbyId, hostName: state.callsign, wager, duration, status: 'OPEN' }, ...s.activeLobbies] }));
       },
 
       joinDuelLobby: async (lobbyId) => {
@@ -324,6 +346,7 @@ export const useStore = create<UserState & StoreActions>()(
                       id: l.id,
                       hostName: l.host_name,
                       wager: l.wager,
+                      duration: l.wager / 50, // Infer duration if not stored explicit column
                       status: l.status as 'OPEN' | 'IN_PROGRESS'
                   }))});
               }
