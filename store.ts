@@ -1,10 +1,17 @@
+
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
-import { UserState, Archetype, Chapter, TierType, GlobalEvent, ActiveBuffs } from './types';
+import { UserState, Archetype, Chapter, TierType, GlobalEvent, Rank, DuelLobby } from './types';
 import { INITIAL_SYLLABUS, DECAY_THRESHOLD_MS, TIER_CONFIG } from './constants';
 import { supabase, isSupabaseConfigured } from './supabaseClient';
 
 interface StoreActions {
+  // Profile
+  updateProfile: (callsign: string, bio: string) => void;
+  toggleManual: () => void;
+  toggleProfile: () => void;
+  
+  // Gameplay
   setArchetype: (a: Archetype) => void;
   startMining: (mode?: 'STANDARD' | 'DUEL') => void;
   stopMining: (success: boolean, durationMinutes: number) => number;
@@ -16,7 +23,15 @@ interface StoreActions {
   buyItem: (item: 'NEURAL' | 'CRYO' | 'GHOST', cost: number) => void;
   
   // Syndicate Actions
-  joinSyndicate: (name: string) => void;
+  createSyndicate: (name: string) => void;
+  joinSyndicate: (code: string) => void;
+  leaveSyndicate: () => void;
+  promoteMember: (memberId: string) => void;
+
+  // PvP Actions
+  createDuelLobby: (wager: number) => void;
+  joinDuelLobby: (lobbyId: string) => void;
+  refreshLobbies: () => void;
 
   // Network Actions
   connectToNetwork: () => void;
@@ -24,7 +39,6 @@ interface StoreActions {
   syncToCloud: () => void;
 }
 
-// Generate a static ID for this client instance if one doesn't exist
 const getClientId = () => {
     let id = localStorage.getItem('sovereign_id');
     if (!id) {
@@ -38,6 +52,9 @@ export const useStore = create<UserState & StoreActions>()(
   persist(
     (set, get) => ({
       // Initial State
+      id: getClientId(),
+      callsign: getClientId(),
+      bio: 'Operative active. No additional data.',
       netWorth: 0,
       efficiency: 1.0,
       willpower: 50,
@@ -55,15 +72,26 @@ export const useStore = create<UserState & StoreActions>()(
           cryoStasisUntil: null,
           ghostProtocolUntil: null
       },
-      syndicateName: null,
-      syndicateMembers: [],
+      syndicate: null,
+      activeLobbies: [],
       
       // Network State
       globalEvents: [],
       onlineStatus: 'CONNECTING',
       activeUsers: 1, 
+      showManual: false,
+      showProfile: false,
 
-      // Actions
+      // --- ACTIONS ---
+
+      updateProfile: (callsign, bio) => {
+          set({ callsign, bio });
+          get().syncToCloud();
+      },
+
+      toggleManual: () => set(state => ({ showManual: !state.showManual })),
+      toggleProfile: () => set(state => ({ showProfile: !state.showProfile })),
+
       setArchetype: (archetype) => {
           set({ archetype, efficiency: 1.1 });
           get().syncToCloud();
@@ -85,8 +113,8 @@ export const useStore = create<UserState & StoreActions>()(
           const loss = Math.floor(state.netWorth * 0.05 * basePenalty * penaltyMultiplier);
           
           const msg = isDuel 
-            ? `${getClientId()} LOST DUEL PROTOCOL (-$${loss})`
-            : `${getClientId()} FAILED FOCUS PROTOCOL (-$${loss})`;
+            ? `${state.callsign} LOST DUEL PROTOCOL (-$${loss})`
+            : `${state.callsign} FAILED FOCUS PROTOCOL (-$${loss})`;
             
           state.pushGlobalEvent(msg, 'COMBAT');
           
@@ -110,18 +138,16 @@ export const useStore = create<UserState & StoreActions>()(
         const oneDay = 24 * 60 * 60 * 1000;
         let newStreak = state.streak;
         
-        // Streak Logic with Cryo-Stasis check
+        // Streak Logic
         const daysSinceLast = (now - state.lastActive) / oneDay;
         
         if (daysSinceLast < 2) {
-             // Maintained
              if (new Date(state.lastActive).getDate() !== new Date(now).getDate()) {
                 newStreak += 1;
             }
         } else {
-            // Check Cryo
             if (state.inventory.cryoStasisUntil && state.inventory.cryoStasisUntil > now) {
-                // Frozen, do not reset
+                // Frozen
             } else {
                 newStreak = 0;
             }
@@ -129,8 +155,8 @@ export const useStore = create<UserState & StoreActions>()(
 
         if (durationMinutes > 15 || isDuel) {
              const msg = isDuel 
-            ? `${getClientId()} WON DUEL PROTOCOL (+$${yieldAmount.toFixed(0)})`
-            : `${getClientId()} EXTRACTED $${yieldAmount.toFixed(0)}`;
+            ? `${state.callsign} WON DUEL PROTOCOL (+$${yieldAmount.toFixed(0)})`
+            : `${state.callsign} EXTRACTED $${yieldAmount.toFixed(0)}`;
             state.pushGlobalEvent(msg, 'MARKET');
         }
 
@@ -168,24 +194,117 @@ export const useStore = create<UserState & StoreActions>()(
           });
           
           if (item !== 'GHOST') {
-              state.pushGlobalEvent(`${getClientId()} PURCHASED ${item} AUGMENT`, 'MARKET');
+              state.pushGlobalEvent(`${state.callsign} PURCHASED ${item} AUGMENT`, 'MARKET');
           }
           get().syncToCloud();
       },
 
-      joinSyndicate: (name) => {
-          set({
-              syndicateName: name,
-              syndicateMembers: [
-                  { id: '1', name: getClientId(), netWorth: get().netWorth, status: 'ONLINE' },
-                  { id: '2', name: 'VEX_99', netWorth: 124000, status: 'ONLINE' },
-                  { id: '3', name: 'KAI_ZEN', netWorth: 98000, status: 'OFFLINE' },
-                  { id: '4', name: 'NEO_XY', netWorth: 45000, status: 'ONLINE' },
-              ]
-          });
+      // --- SYNDICATE LOGIC ---
+      createSyndicate: (name) => {
+          const state = get();
+          const code = Math.random().toString(36).substring(2, 7).toUpperCase();
+          const newSyndicate = {
+              id: 'SYN-' + Math.floor(Math.random() * 1000),
+              name,
+              code,
+              wealth: state.netWorth,
+              commanderId: state.id,
+              members: [{
+                  id: state.id,
+                  name: state.callsign,
+                  netWorth: state.netWorth,
+                  status: 'ONLINE' as const,
+                  rank: 'COMMANDER' as Rank
+              }]
+          };
+          set({ syndicate: newSyndicate });
+          get().pushGlobalEvent(`${state.callsign} ESTABLISHED SYNDICATE [${name}]`, 'SYSTEM');
           get().syncToCloud();
       },
 
+      joinSyndicate: (code) => {
+          const state = get();
+          // Mock join logic (Simulating backend)
+          // In a real app with Supabase, we would query the table.
+          // Here we just attach to a mock structure if it matches "OMEGA" or similar, 
+          // OR if we are simulating, we just create a local representation.
+          
+          const joinedSyndicate = {
+              id: 'SYN-' + code,
+              name: `SYNDICATE-${code}`,
+              code: code,
+              wealth: 500000,
+              commanderId: 'UNKNOWN',
+              members: [
+                  { id: 'UNKNOWN', name: 'COMMANDER_X', netWorth: 400000, status: 'OFFLINE' as const, rank: 'COMMANDER' as Rank },
+                  { id: state.id, name: state.callsign, netWorth: state.netWorth, status: 'ONLINE' as const, rank: 'INITIATE' as Rank }
+              ]
+          };
+          
+          set({ syndicate: joinedSyndicate });
+          get().pushGlobalEvent(`${state.callsign} JOINED FACTION ${code}`, 'SYSTEM');
+          get().syncToCloud();
+      },
+
+      leaveSyndicate: () => {
+          set({ syndicate: null });
+          get().syncToCloud();
+      },
+
+      promoteMember: (memberId) => {
+          const state = get();
+          if (!state.syndicate || state.syndicate.commanderId !== state.id) return;
+          
+          const updatedMembers = state.syndicate.members.map(m => {
+              if (m.id === memberId) {
+                  const newRank: Rank = m.rank === 'INITIATE' ? 'OPERATIVE' : (m.rank === 'OPERATIVE' ? 'LIEUTENANT' : 'LIEUTENANT');
+                  return { ...m, rank: newRank };
+              }
+              return m;
+          });
+          
+          set({ syndicate: { ...state.syndicate, members: updatedMembers }});
+          get().syncToCloud();
+      },
+
+      // --- PVP LOGIC ---
+      createDuelLobby: (wager) => {
+          const state = get();
+          if (state.netWorth < wager) return;
+          
+          const lobby: DuelLobby = {
+              id: Math.random().toString(36).substring(7),
+              hostName: state.callsign,
+              wager,
+              status: 'OPEN'
+          };
+          
+          // In real backend, insert into 'lobbies' table
+          set(s => ({ activeLobbies: [lobby, ...s.activeLobbies] }));
+      },
+
+      joinDuelLobby: (lobbyId) => {
+          const state = get();
+          const lobby = state.activeLobbies.find(l => l.id === lobbyId);
+          if (!lobby || state.netWorth < lobby.wager) return;
+          
+          get().startMining('DUEL');
+          // In real backend, update lobby status to IN_PROGRESS
+          set(s => ({ 
+             activeLobbies: s.activeLobbies.filter(l => l.id !== lobbyId) 
+          }));
+      },
+      
+      refreshLobbies: () => {
+          // Simulate fetching
+          const mockLobbies: DuelLobby[] = [
+              { id: '1', hostName: 'VEX_99', wager: 500, status: 'OPEN' },
+              { id: '2', hostName: 'KAI_ZEN', wager: 2500, status: 'OPEN' },
+          ];
+          set({ activeLobbies: mockLobbies });
+      },
+
+      // --- STANDARD ACTIONS ---
       completeTier: (chapterId, tierId) => {
         const state = get();
         const chapter = state.syllabus.find(c => c.id === chapterId);
@@ -212,7 +331,7 @@ export const useStore = create<UserState & StoreActions>()(
           };
         });
 
-        state.pushGlobalEvent(`${getClientId()} ANNEXED ${chapter.name.toUpperCase()} [${tierId}]`, 'ANNEX');
+        state.pushGlobalEvent(`${state.callsign} ANNEXED ${chapter.name.toUpperCase()} [${tierId}]`, 'ANNEX');
 
         set({
           syllabus: updatedSyllabus,
@@ -260,17 +379,17 @@ export const useStore = create<UserState & StoreActions>()(
       syncToCloud: async () => {
           if (!isSupabaseConfigured()) return;
           const state = get();
-          const clientId = getClientId();
           
           await supabase.from('profiles').upsert({
-              callsign: clientId,
+              callsign: state.callsign,
               net_worth: state.netWorth,
               archetype: state.archetype,
               last_active: new Date().toISOString(),
               data: { 
                   syllabus: state.syllabus,
                   inventory: state.inventory,
-                  syndicateName: state.syndicateName
+                  syndicate: state.syndicate,
+                  bio: state.bio
               }
           }, { onConflict: 'callsign' });
       },
@@ -311,24 +430,22 @@ export const useStore = create<UserState & StoreActions>()(
             
           set({ activeUsers: count || 1 });
 
-          // 3. Attempt to Hydrate User State from Cloud (Cross-Device Sync)
-          const clientId = getClientId();
+          // 3. Attempt to Hydrate User State from Cloud
           const { data: profile } = await supabase
             .from('profiles')
             .select('*')
-            .eq('callsign', clientId)
+            .eq('callsign', get().callsign)
             .single();
 
           if (profile && profile.data) {
              const cloudData = profile.data;
-             // Merge strategy: Cloud wins on netWorth if higher, but we trust local lastRevised usually. 
-             // For simplicity in this V4, we trust Cloud if it exists.
              set({
                  netWorth: profile.net_worth,
                  archetype: profile.archetype,
                  syllabus: cloudData.syllabus || get().syllabus,
                  inventory: cloudData.inventory || get().inventory,
-                 syndicateName: cloudData.syndicateName || get().syndicateName
+                 syndicate: cloudData.syndicate || get().syndicate,
+                 bio: cloudData.bio || get().bio
              });
           }
 
