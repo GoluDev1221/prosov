@@ -55,6 +55,7 @@ export interface SyndicateData {
 export interface DuelLobby {
     id: string;
     hostName: string;
+    hostId: string; // Added to prevent self-joining
     wager: number;
     duration: number; // in minutes
     status: 'OPEN' | 'IN_PROGRESS';
@@ -79,9 +80,10 @@ export interface UserState {
   // Mining Status
   isMining: boolean;
   miningStartTime: number | null;
-  miningMode: 'STANDARD' | 'DUEL'; // Track mining context
-  miningOpponent?: string;
-  defconLevel: number; // 5 (calm) to 1 (panic)
+  miningMode: 'STANDARD' | 'DUEL'; 
+  currentWager: number; // Track active wager for payout logic
+  hostingLobbyId: string | null; // Track if user is waiting in lobby
+  defconLevel: number; 
   
   // Economy Items
   inventory: ActiveBuffs;
