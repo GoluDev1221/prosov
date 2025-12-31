@@ -159,9 +159,9 @@ export const Manual: React.FC = () => {
             <div className="text-xs text-gray-400 space-y-1">
                 <p>As the Exam Date approaches, the system interface shifts.</p>
                 <ul className="list-disc pl-4 space-y-1">
-                    <li><strong className="text-white">DEFCON 5 (>120 Days):</strong> Normal Operation. Cyan Theme.</li>
-                    <li><strong className="text-white">DEFCON 3 (<90 Days):</strong> Visual Glitches increase. Music shifts.</li>
-                    <li><strong className="text-red-500">DEFCON 1 (<30 Days):</strong> Total War. Interface bleeds Red. Panic is simulated.</li>
+                    <li><strong className="text-white">DEFCON 5 (&gt;120 Days):</strong> Normal Operation. Cyan Theme.</li>
+                    <li><strong className="text-white">DEFCON 3 (&lt;90 Days):</strong> Visual Glitches increase. Music shifts.</li>
+                    <li><strong className="text-red-500">DEFCON 1 (&lt;30 Days):</strong> Total War. Interface bleeds Red. Panic is simulated.</li>
                 </ul>
             </div>
           </div>
