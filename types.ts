@@ -1,6 +1,9 @@
+
 export type Archetype = 'STRATEGIST' | 'VANGUARD' | 'SENTINEL' | 'OPERATIVE';
 
 export type TierType = 'L' | 'RTQ' | 'NP' | 'JP' | 'KS' | 'TS';
+
+export type Rank = 'COMMANDER' | 'LIEUTENANT' | 'OPERATIVE' | 'INITIATE';
 
 export interface TierStatus {
   id: TierType;
@@ -37,9 +40,32 @@ export interface SyndicateMember {
     name: string;
     netWorth: number;
     status: 'ONLINE' | 'OFFLINE';
+    rank: Rank;
+}
+
+export interface SyndicateData {
+    id: string;
+    name: string;
+    code: string;
+    wealth: number;
+    commanderId: string;
+    members: SyndicateMember[];
+}
+
+export interface DuelLobby {
+    id: string;
+    hostName: string;
+    wager: number;
+    status: 'OPEN' | 'IN_PROGRESS';
 }
 
 export interface UserState {
+  // Identity
+  id: string;
+  callsign: string;
+  bio: string;
+  
+  // Stats
   netWorth: number; // $NW
   efficiency: number; // 0.1 to 2.0
   willpower: number; // 0-100
@@ -48,9 +74,12 @@ export interface UserState {
   streak: number;
   lastActive: number;
   syllabus: Chapter[];
+  
+  // Mining Status
   isMining: boolean;
   miningStartTime: number | null;
   miningMode: 'STANDARD' | 'DUEL'; // Track mining context
+  miningOpponent?: string;
   defconLevel: number; // 5 (calm) to 1 (panic)
   
   // Economy Items
@@ -62,8 +91,14 @@ export interface UserState {
   activeUsers: number;
   
   // Syndicate
-  syndicateName: string | null;
-  syndicateMembers: SyndicateMember[];
+  syndicate: SyndicateData | null;
+  
+  // PvP
+  activeLobbies: DuelLobby[];
+  
+  // UI Flags
+  showManual: boolean;
+  showProfile: boolean;
 }
 
 export interface MiningSession {
