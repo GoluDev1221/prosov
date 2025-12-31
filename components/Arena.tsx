@@ -18,8 +18,14 @@ export const Arena: React.FC = () => {
   const wagerCost = durationInput * 50;
 
   const handleCreate = () => {
+      if (durationInput < 1 || durationInput > 180) return;
       if (wagerCost > netWorth) return;
       createDuelLobby(durationInput);
+  };
+
+  const handleDurationChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+      const val = parseInt(e.target.value);
+      if (!isNaN(val)) setDurationInput(val);
   };
 
   // WAITING ROOM UI (For Host)
@@ -100,7 +106,7 @@ export const Arena: React.FC = () => {
                     <input 
                         type="number" 
                         value={durationInput}
-                        onChange={(e) => setDurationInput(Math.max(1, Number(e.target.value)))}
+                        onChange={handleDurationChange}
                         className="bg-black border border-gray-700 p-2 text-white w-32 outline-none focus:border-[#00f7ff]"
                         min={1}
                         max={180}
@@ -112,7 +118,7 @@ export const Arena: React.FC = () => {
                 </div>
                 <button 
                     onClick={handleCreate}
-                    disabled={netWorth < wagerCost}
+                    disabled={netWorth < wagerCost || durationInput < 1 || durationInput > 180}
                     className="bg-[#00f7ff]/10 border border-[#00f7ff] text-[#00f7ff] font-bold text-xs hover:bg-[#00f7ff] hover:text-black transition-all flex items-center justify-center gap-2 disabled:opacity-50 h-10 px-4"
                 >
                     <Plus size={16} /> POST
