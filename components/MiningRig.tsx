@@ -22,7 +22,7 @@ export const MiningRig: React.FC = () => {
   const borderColor = isDuel ? 'border-red-500' : 'border-[#00f7ff]';
   const shadowColor = isDuel ? 'shadow-[0_0_50px_rgba(239,68,68,0.2)]' : 'shadow-[0_0_50px_rgba(0,247,255,0.2)]';
 
-  // Initialize Audio Context on Mount (captured from user interaction)
+  // Initialize Audio Context on Mount
   useEffect(() => {
     const initAudio = async () => {
         try {
@@ -32,7 +32,6 @@ export const MiningRig: React.FC = () => {
             const ctx = new AudioContext();
             audioCtxRef.current = ctx;
             
-            // Resume immediately to unlock audio subsystem while we have user gesture context
             if (ctx.state === 'suspended') {
                 await ctx.resume();
             }
@@ -44,7 +43,9 @@ export const MiningRig: React.FC = () => {
 
     return () => {
         stopSiren();
-        audioCtxRef.current?.close();
+        if (audioCtxRef.current && audioCtxRef.current.state !== 'closed') {
+             audioCtxRef.current.close().catch(() => {});
+        }
     };
   }, []);
 
@@ -52,16 +53,15 @@ export const MiningRig: React.FC = () => {
       if (!soundEnabled || !audioCtxRef.current) return;
       
       const ctx = audioCtxRef.current;
-      
-      // Stop previous if any
+      if (ctx.state === 'closed') return; // Safety check
+
       stopSiren();
 
-      // Create Oscillator (Sawtooth for harsh alarm sound)
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
       
       osc.type = 'sawtooth';
-      gain.gain.value = 0.3; // Volume
+      gain.gain.value = 0.3; 
       
       osc.connect(gain);
       gain.connect(ctx.destination);
@@ -70,8 +70,8 @@ export const MiningRig: React.FC = () => {
       oscRef.current = osc;
       gainRef.current = gain;
 
-      // Modulation Loop for Siren Effect (High-Low-High)
       const modulate = () => {
+          if (ctx.state === 'closed') return;
           const now = ctx.currentTime;
           osc.frequency.cancelScheduledValues(now);
           osc.frequency.setValueAtTime(800, now);
@@ -86,11 +86,11 @@ export const MiningRig: React.FC = () => {
   const stopSiren = () => {
       if (oscRef.current) {
           try { oscRef.current.stop(); } catch (e) {}
-          oscRef.current.disconnect();
+          try { oscRef.current.disconnect(); } catch (e) {}
           oscRef.current = null;
       }
       if (gainRef.current) {
-          gainRef.current.disconnect();
+          try { gainRef.current.disconnect(); } catch (e) {}
           gainRef.current = null;
       }
       if (sirenIntervalRef.current) {
@@ -99,7 +99,6 @@ export const MiningRig: React.FC = () => {
       }
   };
 
-  // Toggle Sound Logic (Only on Failure)
   useEffect(() => {
       if (failed && soundEnabled) {
           startSiren();
@@ -108,18 +107,15 @@ export const MiningRig: React.FC = () => {
       }
   }, [soundEnabled, failed]);
 
-  // Focus & Anti-Cheat Logic
   useEffect(() => {
     const handleVisibilityChange = () => {
       if (studyMode) return;
-
       if (document.hidden) {
         setFailed(true);
         if (navigator.vibrate) navigator.vibrate([500, 200, 500]); 
       }
     };
     
-    // Timer Logic
     const timer = setInterval(() => {
         if (!miningStartTime) return;
         const diff = Math.floor((Date.now() - miningStartTime) / 1000);
@@ -171,7 +167,6 @@ export const MiningRig: React.FC = () => {
   return (
     <div className="fixed inset-0 bg-black z-50 flex flex-col items-center justify-center p-4">
       
-      {/* Sound Toggle */}
       <button 
         onClick={() => setSoundEnabled(!soundEnabled)}
         className="absolute top-4 right-4 text-gray-500 hover:text-white"
@@ -205,7 +200,6 @@ export const MiningRig: React.FC = () => {
         <p className="text-[10px] text-gray-600">OPERATOR: {callsign}</p>
       </div>
 
-      {/* Progress Bar */}
       <div className="mt-8 w-full max-w-xs">
           <div className="flex justify-between text-xs text-gray-600 mb-1">
               <span>YIELD</span>
@@ -216,7 +210,6 @@ export const MiningRig: React.FC = () => {
           </div>
       </div>
 
-      {/* Actions */}
       <div className="mt-12 flex flex-col gap-4 w-full max-w-xs">
           
           {!isDuel && !studyMode && (
