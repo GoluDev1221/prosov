@@ -11,8 +11,8 @@ export const Auth: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Fake domain for mapping username to email
-  const DOMAIN = 'project-sovereign.local';
+  // CHANGED: Use a standard TLD to pass email validation regex
+  const DOMAIN = 'sovereign-net.com';
 
   const validateUsername = (u: string) => /^[a-zA-Z0-9_]{3,20}$/.test(u);
 
@@ -30,22 +30,17 @@ export const Auth: React.FC = () => {
       }
 
       if (view === 'SIGNUP') {
-        // 1. Check Uniqueness manually since we can't enforce SQL constraint easily from here
+        // 1. Check Uniqueness
         const { data: existing, error: checkError } = await supabase
             .from('profiles')
             .select('id')
-            .ilike('callsign', cleanUsername) // Case-insensitive check
+            .ilike('callsign', cleanUsername)
             .single();
 
         if (existing) {
             throw new Error("CODENAME ALREADY OCCUPIED");
         }
         
-        // Ignore "PGRST116" error which means no rows found (good for us)
-        if (checkError && checkError.code !== 'PGRST116') {
-            console.error(checkError); // Log unexpected db errors
-        }
-
         // 2. Sign Up
         const { data: authData, error: authError } = await supabase.auth.signUp({
           email,
@@ -64,14 +59,16 @@ export const Auth: React.FC = () => {
             });
             
             if (profileError) {
-                // Determine if it was a duplicate key error just in case race condition
-                throw new Error("PROFILE CREATION FAILED. RETRY.");
+                // If profile fails, user exists in Auth but not DB. 
+                // In a real app we'd handle this cleanup, but here we just warn.
+                console.error(profileError);
+                throw new Error("IDENTITY CREATION FAILED. TRY AGAIN.");
             }
             
             alert("OPERATIVE REGISTERED. INITIALIZING LINK...");
-            window.location.reload(); // Force reload to ensure session pick-up
+            window.location.reload(); 
         } else {
-             alert("VERIFICATION REQUIRED. CHECK SYSTEM ADMIN.");
+             alert("VERIFICATION REQUIRED.");
         }
 
       } else {
