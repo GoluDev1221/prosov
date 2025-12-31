@@ -1,9 +1,11 @@
+
 import React from 'react';
 import { useStore } from '../store';
 import { Chapter, TierType } from '../types';
 import { TIER_CONFIG } from '../constants';
 import { Lock, Check, AlertTriangle } from 'lucide-react';
 import { motion } from 'framer-motion';
+import { InfoTooltip } from './InfoTooltip';
 
 export const Intel: React.FC = () => {
   const { syllabus, completeTier, netWorth } = useStore();
@@ -14,12 +16,15 @@ export const Intel: React.FC = () => {
   return (
     <div className="h-full flex flex-col">
       <div className="mb-4 flex justify-between items-center">
-        <h2 className="text-lg font-bold tracking-widest text-[#00f7ff]">SECTOR MAP</h2>
+        <div className="flex items-center">
+             <h2 className="text-lg font-bold tracking-widest text-[#00f7ff]">SECTOR MAP</h2>
+             <InfoTooltip text="Each Hex is a chapter. Click to annex. Gold hexes are decaying and need revision." />
+        </div>
         <span className="text-xs text-gray-500">{syllabus.filter(c => c.tiers.every(t => t.completed)).length}/{syllabus.length} ANNEXED</span>
       </div>
 
       {/* Hex Grid Layout */}
-      <div className="flex flex-wrap gap-4 justify-center pb-20">
+      <div className="flex flex-wrap gap-4 justify-center pb-20 overflow-y-auto">
         {syllabus.map((chapter) => (
           <div 
             key={chapter.id} 
