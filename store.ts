@@ -406,11 +406,13 @@ export const useStore = create<UserState & StoreActions>()(
 
           await supabase.from('profiles').update({
               callsign: state.callsign,
+              archetype: state.archetype, // CRITICAL FIX: Save archetype to DB
               data: { 
                   efficiency: state.efficiency, 
                   inventory: state.inventory,
                   syndicate: state.syndicate,
-                  bio: state.bio
+                  bio: state.bio,
+                  syllabus: state.syllabus // Also sync syllabus
               }
           }).eq('id', state.id);
       },
@@ -439,8 +441,6 @@ export const useStore = create<UserState & StoreActions>()(
                     .single();
 
                   if (!profile) {
-                      // FALLBACK: If Auth.tsx created auth user but failed to create profile (rare), do it here.
-                      // Try to derive username from email (user@project-sovereign.local)
                       const derivedName = session.user.email 
                          ? session.user.email.split('@')[0].toUpperCase() 
                          : `OPERATIVE-${userId.slice(0,4)}`;
@@ -466,7 +466,23 @@ export const useStore = create<UserState & StoreActions>()(
                   }
               }
 
-              // 3. Subscriptions (Realtime)
+              // 3. FETCH RECENT EVENTS (Populate Ticker Immediately)
+              const { data: recentEvents } = await supabase
+                .from('global_events')
+                .select('*')
+                .order('created_at', { ascending: false })
+                .limit(20);
+                
+              if (recentEvents) {
+                   set({ globalEvents: recentEvents.map(e => ({
+                       id: e.id,
+                       message: e.message,
+                       type: e.type as any,
+                       timestamp: new Date(e.created_at).getTime()
+                   }))});
+              }
+
+              // 4. Subscriptions (Realtime)
               supabase
                 .channel('public:network')
                 .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'global_events' }, (payload) => {
