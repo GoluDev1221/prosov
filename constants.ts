@@ -1,15 +1,17 @@
+
 import { Chapter, TierType } from './types';
 
 export const EXAM_DATE = new Date('2026-05-05').getTime();
 export const DECAY_THRESHOLD_MS = 14 * 24 * 60 * 60 * 1000; // 14 days
 
+// REBALANCED ECONOMY: Costs lowered by ~75% for early game accessibility
 export const TIER_CONFIG: Record<TierType, { label: string; baseValue: number; category: 'THEORY' | 'COMBAT' }> = {
-  L: { label: 'Lecture', baseValue: 100, category: 'THEORY' },
-  RTQ: { label: 'Revision', baseValue: 50, category: 'THEORY' },
-  NP: { label: 'NEET PYQ', baseValue: 150, category: 'THEORY' },
-  JP: { label: 'JEE PYQ', baseValue: 200, category: 'COMBAT' },
-  KS: { label: 'Kattar Sheet', baseValue: 250, category: 'COMBAT' },
-  TS: { label: 'Teacher Sheet', baseValue: 300, category: 'COMBAT' },
+  L: { label: 'Lecture', baseValue: 25, category: 'THEORY' },
+  RTQ: { label: 'Revision', baseValue: 15, category: 'THEORY' },
+  NP: { label: 'NEET PYQ', baseValue: 40, category: 'THEORY' },
+  JP: { label: 'JEE PYQ', baseValue: 60, category: 'COMBAT' },
+  KS: { label: 'Kattar Sheet', baseValue: 100, category: 'COMBAT' },
+  TS: { label: 'Teacher Sheet', baseValue: 150, category: 'COMBAT' },
 };
 
 const subjects = {
