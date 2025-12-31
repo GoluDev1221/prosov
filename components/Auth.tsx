@@ -11,8 +11,9 @@ export const Auth: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // CHANGED: Use a cleaner domain. Supabase requires valid email structure.
-  const DOMAIN = 'prosov.app';
+  // CHANGED: Use your actual Vercel domain. 
+  // This is a "Synthetic Domain" used to satisfy Supabase's email requirement.
+  const DOMAIN = 'prosov.vercel.app';
 
   // Strict Alphanumeric to prevent invalid email characters
   const validateUsername = (u: string) => /^[a-zA-Z0-9]{3,20}$/.test(u);
@@ -24,7 +25,8 @@ export const Auth: React.FC = () => {
 
     const cleanUsername = username.trim();
     
-    // Construct email: username@prosov.app
+    // Construct email: username@prosov.vercel.app
+    // This allows the user to login with just a username, while Supabase gets the email it needs.
     const email = `${cleanUsername}@${DOMAIN}`;
 
     try {
@@ -33,7 +35,7 @@ export const Auth: React.FC = () => {
       }
 
       if (view === 'SIGNUP') {
-        // 1. Check Uniqueness
+        // 1. Check Uniqueness (Check if this username/email already exists)
         const { data: existing, error: checkError } = await supabase
             .from('profiles')
             .select('id')
@@ -69,7 +71,8 @@ export const Auth: React.FC = () => {
             alert("OPERATIVE REGISTERED. INITIALIZING LINK...");
             window.location.reload(); 
         } else {
-             alert("VERIFICATION REQUIRED. CHECK SYSTEM ADMIN.");
+             // If this alerts, it means Email Confirmation is ENABLED in Supabase. It must be DISABLED.
+             alert("VERIFICATION REQUIRED. DISABLE 'CONFIRM EMAIL' IN SUPABASE DASHBOARD.");
         }
 
       } else {
