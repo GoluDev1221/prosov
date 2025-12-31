@@ -4,6 +4,7 @@ import { useStore } from '../store';
 import { formatCurrency } from '../utils';
 import { Users, Shield, Lock, Crown, LogOut, ChevronUp } from 'lucide-react';
 import { Rank } from '../types';
+import { InfoTooltip } from './InfoTooltip';
 
 export const Syndicates: React.FC = () => {
   const { syndicate, createSyndicate, joinSyndicate, leaveSyndicate, promoteMember, netWorth, id } = useStore();
@@ -51,10 +52,10 @@ export const Syndicates: React.FC = () => {
                         onChange={(e) => setInputName(e.target.value.toUpperCase())}
                         className="w-full bg-black border border-gray-700 p-3 text-center text-[#00f7ff] focus:border-[#00f7ff] outline-none"
                     />
-                    <div className="text-[10px] text-gray-500">COST: $50,000 NW</div>
+                    <div className="text-[10px] text-gray-500">COST: $2,500 NW</div>
                     <button 
                         onClick={() => createSyndicate(inputName)}
-                        disabled={!inputName || netWorth < 50000}
+                        disabled={!inputName || netWorth < 2500}
                         className="w-full bg-[#00f7ff]/10 border border-[#00f7ff] text-[#00f7ff] py-3 font-bold hover:bg-[#00f7ff] hover:text-black transition-all disabled:opacity-50"
                     >
                         ESTABLISH FACTION
@@ -77,14 +78,17 @@ export const Syndicates: React.FC = () => {
   };
 
   return (
-    <div className="space-y-6 animate-in fade-in">
+    <div className="space-y-6 animate-in fade-in pb-20">
         <div className="border-b border-[#00f7ff]/30 pb-4 flex justify-between items-end">
             <div>
                 <h2 className="text-xl font-bold text-[#00f7ff]">{syndicate.name}</h2>
                 <p className="text-xs text-gray-500">CODE: <span className="text-white font-mono">{syndicate.code}</span></p>
             </div>
             <div className="text-right">
-                <p className="text-xl font-bold text-white">{formatCurrency(totalWealth)}</p>
+                <p className="text-xl font-bold text-white flex items-center justify-end">
+                    {formatCurrency(totalWealth)}
+                    <InfoTooltip text="Total Net Worth of all members." />
+                </p>
                 <p className="text-[10px] text-gray-500">COLLECTIVE WEALTH</p>
             </div>
         </div>
@@ -94,9 +98,10 @@ export const Syndicates: React.FC = () => {
                 <Shield size={12} /> ACTIVE PROTOCOLS
             </h3>
             <div className="flex gap-2">
-                <div className="flex-1 bg-black border border-gray-800 p-2 opacity-50">
+                <div className="flex-1 bg-black border border-gray-800 p-2 opacity-50 relative group">
                     <div className="text-[10px] text-gray-500">EFFICIENCY</div>
                     <div className="text-[#00f7ff]">+5%</div>
+                    <div className="absolute top-1 right-1"><InfoTooltip text="Boosts mining yield for all members."/></div>
                 </div>
                 <div className="flex-1 bg-black border border-gray-800 p-2 opacity-50">
                     <div className="text-[10px] text-gray-500">DEFENSE</div>
