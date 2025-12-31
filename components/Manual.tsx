@@ -1,7 +1,7 @@
 
 import React from 'react';
 import { useStore } from '../store';
-import { X, Shield, Swords, Map, Activity } from 'lucide-react';
+import { X, Shield, Swords, Map, Activity, Brain, User } from 'lucide-react';
 
 export const Manual: React.FC = () => {
   const { toggleManual } = useStore();
@@ -52,30 +52,31 @@ export const Manual: React.FC = () => {
             </p>
           </div>
 
-          {/* Section 3 */}
-          <div className="space-y-2">
-            <div className="flex items-center gap-2 text-white font-bold">
-              <Swords size={18} className="text-[#00f7ff]" />
-              <h3>3. PVP & SYNDICATES</h3>
-            </div>
-            <p className="text-sm text-gray-400 leading-relaxed">
-              Enter <span className="text-white">THE ARENA</span> to wager $NW against other operatives. 
-              Join a <span className="text-white">SYNDICATE</span> to pool wealth and unlock rank-based buffs.
-              Syndicate Commanders hold the power to promote or exile.
-            </p>
-          </div>
-
-          {/* Section 4 */}
-          <div className="space-y-2">
-            <div className="flex items-center gap-2 text-white font-bold">
-              <Shield size={18} className="text-[#00f7ff]" />
-              <h3>4. SURVIVAL</h3>
-            </div>
-            <p className="text-sm text-gray-400 leading-relaxed">
-              The Global War Ticker shows real-time actions of other agents. 
-              Use the <span className="text-white">BLACK MARKET</span> for advantages, but beware: 
-              the only true currency is discipline.
-            </p>
+          {/* Section 3: Archetypes */}
+          <div className="space-y-4 pt-2 border-t border-gray-800">
+             <div className="flex items-center gap-2 text-white font-bold">
+                <User size={18} className="text-[#00f7ff]" />
+                <h3>3. CLASS SPECIALIZATIONS</h3>
+             </div>
+             
+             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                 <div className="bg-black border border-gray-800 p-3">
+                     <div className="flex items-center gap-2 text-[#00f7ff] mb-1 font-bold"><Brain size={14}/> STRATEGIST</div>
+                     <p className="text-[10px] text-gray-400">Mastery of theory. <span className="text-white">15% Discount</span> on Lecture, Revision, and NEET PYQ tiers.</p>
+                 </div>
+                 <div className="bg-black border border-gray-800 p-3">
+                     <div className="flex items-center gap-2 text-[#00f7ff] mb-1 font-bold"><Swords size={14}/> VANGUARD</div>
+                     <p className="text-[10px] text-gray-400">Mastery of application. <span className="text-white">15% Discount</span> on JEE PYQ, Kattar Sheet, and Teacher Sheet tiers.</p>
+                 </div>
+                 <div className="bg-black border border-gray-800 p-3">
+                     <div className="flex items-center gap-2 text-[#00f7ff] mb-1 font-bold"><Shield size={14}/> SENTINEL</div>
+                     <p className="text-[10px] text-gray-400">The disciplined wall. <span className="text-white">50% Reduced Penalty</span> when a focus session fails or distraction is detected.</p>
+                 </div>
+                 <div className="bg-black border border-gray-800 p-3">
+                     <div className="flex items-center gap-2 text-[#00f7ff] mb-1 font-bold"><User size={14}/> OPERATIVE</div>
+                     <p className="text-[10px] text-gray-400">The baseline. No specific buffs, but no Syndicate tax liability in future updates.</p>
+                 </div>
+             </div>
           </div>
 
         </div>
