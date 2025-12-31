@@ -22,18 +22,18 @@ export const MiningRig: React.FC = () => {
 
   // Audio Initialization
   useEffect(() => {
-    // Ambient: Dark Drone (Deep focus)
-    ambientRef.current = new Audio('https://cdn.pixabay.com/audio/2022/10/05/audio_6862569947.mp3');
+    // Standard sounds from reliable CDN
+    ambientRef.current = new Audio('https://assets.mixkit.co/active_storage/sfx/2568/2568-preview.mp3'); // Low Drone
     ambientRef.current.loop = true;
     ambientRef.current.volume = 0.5;
 
-    // Siren: WW2 Air Raid Siren (Distinct Warning)
-    sirenRef.current = new Audio('https://cdn.pixabay.com/audio/2021/08/09/audio_0ac4267e37.mp3');
+    sirenRef.current = new Audio('https://assets.mixkit.co/active_storage/sfx/3004/3004-preview.mp3'); // Emergency Alarm
     sirenRef.current.loop = true;
     sirenRef.current.volume = 1.0;
 
+    // Force play to "unlock" audio context immediately on mount (since user just clicked Start)
     if (soundEnabled) {
-        ambientRef.current.play().catch(e => console.log("Audio play failed:", e));
+        ambientRef.current.play().catch(e => console.log("Audio play failed (interaction required):", e));
     }
 
     return () => {
@@ -48,7 +48,13 @@ export const MiningRig: React.FC = () => {
       
       if (failed) {
           ambientRef.current.pause();
-          if (soundEnabled) sirenRef.current.play().catch(() => {});
+          if (soundEnabled) {
+              // Ensure promise is handled
+              const playPromise = sirenRef.current.play();
+              if (playPromise !== undefined) {
+                  playPromise.catch(e => console.error("Siren blocked:", e));
+              }
+          }
       } else {
           sirenRef.current.pause();
           sirenRef.current.currentTime = 0;
@@ -65,7 +71,6 @@ export const MiningRig: React.FC = () => {
 
       if (document.hidden) {
         setFailed(true);
-        // Haptic feedback for mobile
         if (navigator.vibrate) navigator.vibrate([500, 200, 500]); 
       }
     };
