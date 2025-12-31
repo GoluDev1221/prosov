@@ -127,10 +127,27 @@ export const useStore = create<UserState & StoreActions>()(
 
            // 2. PvP Failure Handover
            if (state.miningMode === 'DUEL' && state.activeDuelId && isSupabaseConfigured()) {
-               // I failed, so I set the opponent as winner.
-               // We don't know opponent ID easily here without extra fetch, but we can try to set it via RPC or update
-               // Ideally, we just resign.
-               await supabase.rpc('resign_duel', { lobby_id: state.activeDuelId, loser_id: state.id });
+               try {
+                   // Retrieve Lobby Data to identify opponent
+                   const { data: lobby } = await supabase
+                       .from('duel_lobbies')
+                       .select('host_id, challenger_id')
+                       .eq('id', state.activeDuelId)
+                       .single();
+                   
+                   if (lobby) {
+                       const winnerId = lobby.host_id === state.id ? lobby.challenger_id : lobby.host_id;
+                       if (winnerId) {
+                           // Set opponent as winner (triggering their listener)
+                           await supabase
+                               .from('duel_lobbies')
+                               .update({ status: 'FINISHED', winner_id: winnerId })
+                               .eq('id', state.activeDuelId);
+                       }
+                   }
+               } catch (err) {
+                   console.error("Failed to resign duel", err);
+               }
            }
 
            set({ 
