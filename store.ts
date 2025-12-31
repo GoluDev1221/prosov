@@ -1,8 +1,10 @@
+
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import { UserState, Archetype, Chapter, TierType, GlobalEvent, Rank, DuelLobby, SyndicateData } from './types';
 import { INITIAL_SYLLABUS, DECAY_THRESHOLD_MS, TIER_CONFIG } from './constants';
 import { supabase, isSupabaseConfigured } from './supabaseClient';
+import { RealtimeChannel } from '@supabase/supabase-js';
 
 interface StoreActions {
   // Profile
@@ -13,7 +15,7 @@ interface StoreActions {
   
   // Gameplay
   setArchetype: (a: Archetype) => void;
-  startMining: (mode?: 'STANDARD' | 'DUEL', wager?: number) => void;
+  startMining: (mode?: 'STANDARD' | 'DUEL', wager?: number, duelId?: string) => void;
   stopMining: (success: boolean, durationMinutes: number) => Promise<number>;
   completeTier: (chapterId: string, tierId: TierType) => Promise<void>;
   updateDecay: () => void;
@@ -40,6 +42,9 @@ interface StoreActions {
   syncToCloud: () => void;
 }
 
+// Keep track of channel outside store to prevent serialization issues
+let networkChannel: RealtimeChannel | null = null;
+
 export const useStore = create<UserState & StoreActions>()(
   persist(
     (set, get) => ({
@@ -61,6 +66,7 @@ export const useStore = create<UserState & StoreActions>()(
       miningMode: 'STANDARD',
       currentWager: 0,
       hostingLobbyId: null,
+      activeDuelId: null,
 
       defconLevel: 5,
       inventory: {
@@ -98,32 +104,40 @@ export const useStore = create<UserState & StoreActions>()(
           get().syncToCloud();
       },
 
-      startMining: (mode = 'STANDARD', wager = 0) => set({ 
+      startMining: (mode = 'STANDARD', wager = 0, duelId = undefined) => set({ 
         isMining: true, 
         miningStartTime: Date.now(),
         miningMode: mode,
-        currentWager: wager
+        currentWager: wager,
+        activeDuelId: duelId
       }),
 
       stopMining: async (success, durationMinutes) => {
         const state = get();
         
+        // --- FAILURE LOGIC ---
         if (!success) {
            // 1. Calculate Base Penalty (20% of Remaining Net Worth)
-           // Note: For PvP, the wager is ALREADY lost (deducted at start). 
-           // This penalty is EXTRA punishment for lacking discipline.
            let penalty = Math.floor(state.netWorth * 0.20);
            
            if (state.archetype === 'SENTINEL') {
                penalty = Math.floor(penalty * 0.5);
            }
-
            if (state.netWorth > 0 && penalty === 0) penalty = 1;
+
+           // 2. PvP Failure Handover
+           if (state.miningMode === 'DUEL' && state.activeDuelId && isSupabaseConfigured()) {
+               // I failed, so I set the opponent as winner.
+               // We don't know opponent ID easily here without extra fetch, but we can try to set it via RPC or update
+               // Ideally, we just resign.
+               await supabase.rpc('resign_duel', { lobby_id: state.activeDuelId, loser_id: state.id });
+           }
 
            set({ 
                isMining: false, 
                miningStartTime: null,
-               hostingLobbyId: null, // Clear lobby if they fail while hosting/mining
+               hostingLobbyId: null, 
+               activeDuelId: null,
                currentWager: 0,
                netWorth: Math.max(0, state.netWorth - penalty) 
            });
@@ -136,24 +150,25 @@ export const useStore = create<UserState & StoreActions>()(
 
         if (state.miningMode === 'DUEL') {
              // WINNER TAKES POT (Wager * 2)
-             // Entry fee was already paid. We return the fee + opponent's fee.
              const pot = state.currentWager * 2;
              
+             // If this was a manual stop (timer end), we claim the win in DB
+             if (state.activeDuelId && isSupabaseConfigured()) {
+                 await supabase.from('duel_lobbies').update({ 
+                     status: 'FINISHED', 
+                     winner_id: state.id 
+                 }).eq('id', state.activeDuelId);
+             }
+
              set({
                  isMining: false,
                  miningStartTime: null,
                  hostingLobbyId: null,
+                 activeDuelId: null,
                  currentWager: 0,
                  netWorth: state.netWorth + pot,
                  lastActive: Date.now()
              });
-
-             if (isSupabaseConfigured()) {
-                // Inform server match is done (optional cleanup)
-                if (state.hostingLobbyId) {
-                   await supabase.from('duel_lobbies').delete().eq('id', state.hostingLobbyId);
-                }
-             }
 
              state.pushGlobalEvent(`${state.callsign} WON DUEL (+$${pot})`, 'COMBAT');
              return pot;
@@ -255,7 +270,7 @@ export const useStore = create<UserState & StoreActions>()(
 
           set({ syndicate: newSyndicate, netWorth: state.netWorth - COST });
           get().pushGlobalEvent(`${state.callsign} ESTABLISHED SYNDICATE [${name}]`, 'SYSTEM');
-          get().connectToNetwork(); // Re-trigger subs
+          get().connectToNetwork(); 
       },
 
       joinSyndicate: async (code) => {
@@ -295,12 +310,13 @@ export const useStore = create<UserState & StoreActions>()(
 
               set({ syndicate: syndicateData, netWorth: state.netWorth - COST });
               get().pushGlobalEvent(`${state.callsign} JOINED FACTION ${data.name}`, 'SYSTEM');
-              get().connectToNetwork(); // Re-trigger subs
+              get().connectToNetwork();
           }
       },
 
       leaveSyndicate: async () => {
           set({ syndicate: null });
+          // Optionally trigger network reconnect to clear subscriptions, or just let it be
       },
 
       promoteMember: async (memberId) => {
@@ -318,7 +334,6 @@ export const useStore = create<UserState & StoreActions>()(
           if (isSupabaseConfigured()) {
                await supabase.from('syndicates').update({ members: updatedMembers }).eq('id', state.syndicate.id);
           }
-          // Local update will happen via subscription
       },
 
       // --- PVP LOGIC ---
@@ -330,7 +345,7 @@ export const useStore = create<UserState & StoreActions>()(
           
           const lobbyId = crypto.randomUUID();
 
-          // 1. ESCROW: Deduct Funds Immediately
+          // 1. ESCROW
           set({ netWorth: state.netWorth - wager });
 
           if (isSupabaseConfigured()) {
@@ -340,20 +355,17 @@ export const useStore = create<UserState & StoreActions>()(
                   host_id: state.id,
                   wager: wager,
                   status: 'OPEN',
-                  // Ensure supabase table has 'duration' column or use flexible jsonb
+                  // Ensure DB has 'duration' column
+                  duration: duration 
               });
               
               if (error) {
-                  // REFUND ON ERROR
-                  set({ netWorth: state.netWorth }); // Restore (logic simplified, netWorth is state.netWorth before deduction here if we strictly follow immutability but zustand state updates are immediate)
-                  // Actually, to be safe:
                   set((s) => ({ netWorth: s.netWorth + wager }));
-                  alert("NETWORK ERROR: CONTRACT CANCELLED");
+                  alert("NETWORK ERROR");
                   return;
               }
           }
 
-          // 2. Set Hosting State (Waiting Room)
           set({ 
               hostingLobbyId: lobbyId,
               activeLobbies: [{ id: lobbyId, hostName: state.callsign, hostId: state.id, wager, duration, status: 'OPEN' }, ...state.activeLobbies] 
@@ -365,15 +377,12 @@ export const useStore = create<UserState & StoreActions>()(
           const lobbyId = state.hostingLobbyId;
           if (!lobbyId) return;
 
-          // 1. Remove from DB
           if (isSupabaseConfigured()) {
               await supabase.from('duel_lobbies').delete().eq('id', lobbyId);
           }
 
-          // 2. Refund Logic (Find the lobby to get wager amount, or infer from somewhere. 
-          // Simplification: We look it up in activeLobbies or assume we know it)
           const lobby = state.activeLobbies.find(l => l.id === lobbyId);
-          const refundAmount = lobby ? lobby.wager : 0; // Fallback if lost
+          const refundAmount = lobby ? lobby.wager : (state.currentWager || 0);
           
           set({ 
               hostingLobbyId: null,
@@ -386,19 +395,22 @@ export const useStore = create<UserState & StoreActions>()(
           const state = get();
           if (state.netWorth < wager) { alert("INSUFFICIENT FUNDS"); return; }
 
-          // 1. ESCROW
           set({ netWorth: state.netWorth - wager });
 
           if (isSupabaseConfigured()) {
-              const { error } = await supabase.from('duel_lobbies').update({ status: 'IN_PROGRESS' }).eq('id', lobbyId);
+              const { error } = await supabase.from('duel_lobbies').update({ 
+                  status: 'IN_PROGRESS',
+                  challenger_id: state.id 
+              }).eq('id', lobbyId);
+
               if (error) {
-                  set(s => ({ netWorth: s.netWorth + wager })); // Refund
+                  set(s => ({ netWorth: s.netWorth + wager })); 
                   alert("MATCHMAKING FAILED");
                   return;
               }
           }
           
-          get().startMining('DUEL', wager);
+          get().startMining('DUEL', wager, lobbyId);
           set(s => ({ activeLobbies: s.activeLobbies.filter(l => l.id !== lobbyId) }));
       },
       
@@ -408,7 +420,7 @@ export const useStore = create<UserState & StoreActions>()(
                 .from('duel_lobbies')
                 .select('*')
                 .eq('status', 'OPEN')
-                .neq('host_id', get().id) // Don't show own lobby
+                .neq('host_id', get().id) 
                 .order('created_at', { ascending: false })
                 .limit(20);
               if (data) {
@@ -417,7 +429,7 @@ export const useStore = create<UserState & StoreActions>()(
                       hostName: l.host_name,
                       hostId: l.host_id,
                       wager: l.wager,
-                      duration: l.wager / 50, 
+                      duration: l.duration || l.wager / 50, 
                       status: l.status as 'OPEN' | 'IN_PROGRESS'
                   }))});
               }
@@ -449,11 +461,10 @@ export const useStore = create<UserState & StoreActions>()(
         });
 
         if (isSupabaseConfigured()) {
-            const { data: success } = await supabase.rpc('annex_territory', {
+            await supabase.rpc('annex_territory', {
                 cost: Math.floor(cost),
                 updated_syllabus: updatedSyllabus
             });
-            // If RPC fails or returns false, maybe handle rollback, but for now we assume optimistic
         }
 
         const chapter = state.syllabus.find(c => c.id === chapterId);
@@ -496,6 +507,7 @@ export const useStore = create<UserState & StoreActions>()(
           await supabase.from('profiles').update({
               callsign: state.callsign,
               archetype: state.archetype, 
+              net_worth: state.netWorth,
               data: { 
                   efficiency: state.efficiency, 
                   inventory: state.inventory,
@@ -510,6 +522,12 @@ export const useStore = create<UserState & StoreActions>()(
           if (!isSupabaseConfigured()) {
               set({ onlineStatus: 'ERROR' });
               return;
+          }
+
+          // Cleanup previous channel to prevent duplication
+          if (networkChannel) {
+              supabase.removeChannel(networkChannel);
+              networkChannel = null;
           }
 
           set({ onlineStatus: 'CONNECTING' });
@@ -538,10 +556,10 @@ export const useStore = create<UserState & StoreActions>()(
               }
 
               // 2. REALTIME SUBSCRIPTIONS
-              const channel = supabase.channel('public:network');
+              networkChannel = supabase.channel('public:network');
 
               // A. Global Events
-              channel.on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'global_events' }, (payload) => {
+              networkChannel.on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'global_events' }, (payload) => {
                     const newEvent = payload.new;
                     set(state => ({
                         globalEvents: [{
@@ -554,26 +572,37 @@ export const useStore = create<UserState & StoreActions>()(
               });
 
               // B. PvP Lobbies
-              channel.on('postgres_changes', { event: '*', schema: 'public', table: 'duel_lobbies' }, (payload) => {
+              networkChannel.on('postgres_changes', { event: '*', schema: 'public', table: 'duel_lobbies' }, (payload) => {
                     const state = get();
                     const newRecord = payload.new as any;
                     
-                    // Host Detection Logic: If I am hosting, and the status changes to IN_PROGRESS, Start Game
+                    // HOST: If I am hosting, and status -> IN_PROGRESS, Start Game
                     if (state.hostingLobbyId && newRecord && newRecord.id === state.hostingLobbyId) {
                         if (newRecord.status === 'IN_PROGRESS') {
                             const wager = newRecord.wager;
-                            get().startMining('DUEL', wager); // START COMBAT
+                            get().startMining('DUEL', wager, newRecord.id); 
                         }
+                    }
+
+                    // ACTIVE PLAYERS: If I am in a duel (Host or Challenger), and winner_id is set to ME, I win.
+                    if (state.activeDuelId && newRecord && newRecord.id === state.activeDuelId) {
+                         // Win via Forfeit (Opponent resigned/failed)
+                         if (newRecord.winner_id === state.id) {
+                             get().stopMining(true, 0); // Trigger Success (Duration irrelevant for forfeit win)
+                             alert("VICTORY: OPPONENT CONNECTION LOST");
+                         }
                     }
                     
                     get().refreshLobbies();
               });
 
-              // C. Syndicate Sync (Specific to my syndicate)
-              const mySyndicateId = get().syndicate?.id;
-              if (mySyndicateId) {
-                  channel.on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'syndicates', filter: `id=eq.${mySyndicateId}` }, (payload) => {
-                      const newData = payload.new;
+              // C. Syndicate Sync
+              // We listen to ALL syndicate updates and filter in callback to support changing syndicates dynamically
+              networkChannel.on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'syndicates' }, (payload) => {
+                  const state = get();
+                  const newData = payload.new as any;
+                  
+                  if (state.syndicate && state.syndicate.id === newData.id) {
                       set({ syndicate: {
                           id: newData.id,
                           name: newData.name,
@@ -582,10 +611,10 @@ export const useStore = create<UserState & StoreActions>()(
                           commanderId: newData.commander_id,
                           members: newData.members
                       }});
-                  });
-              }
+                  }
+              });
 
-              channel.subscribe((status) => {
+              networkChannel.subscribe((status) => {
                   if (status === 'SUBSCRIBED') set({ onlineStatus: 'ONLINE' });
               });
               
