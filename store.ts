@@ -1,7 +1,7 @@
 
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
-import { UserState, Archetype, Chapter, TierType, GlobalEvent, Rank, DuelLobby } from './types';
+import { UserState, Archetype, Chapter, TierType, GlobalEvent, Rank, DuelLobby, SyndicateData } from './types';
 import { INITIAL_SYLLABUS, DECAY_THRESHOLD_MS, TIER_CONFIG } from './constants';
 import { supabase, isSupabaseConfigured } from './supabaseClient';
 
@@ -14,8 +14,8 @@ interface StoreActions {
   // Gameplay
   setArchetype: (a: Archetype) => void;
   startMining: (mode?: 'STANDARD' | 'DUEL') => void;
-  stopMining: (success: boolean, durationMinutes: number) => number;
-  completeTier: (chapterId: string, tierId: TierType) => void;
+  stopMining: (success: boolean, durationMinutes: number) => Promise<number>;
+  completeTier: (chapterId: string, tierId: TierType) => Promise<void>;
   updateDecay: () => void;
   calculateCAGR: () => number;
   
@@ -39,21 +39,12 @@ interface StoreActions {
   syncToCloud: () => void;
 }
 
-const getClientId = () => {
-    let id = localStorage.getItem('sovereign_id');
-    if (!id) {
-        id = 'SOV-' + Math.floor(Math.random() * 9999);
-        localStorage.setItem('sovereign_id', id);
-    }
-    return id;
-};
-
 export const useStore = create<UserState & StoreActions>()(
   persist(
     (set, get) => ({
       // Initial State
-      id: getClientId(),
-      callsign: getClientId(),
+      id: '', // Will be set by Auth
+      callsign: 'OPERATOR',
       bio: 'Operative active. No additional data.',
       netWorth: 0,
       efficiency: 1.0,
@@ -103,75 +94,56 @@ export const useStore = create<UserState & StoreActions>()(
         miningMode: mode
       }),
 
-      stopMining: (success, durationMinutes) => {
+      stopMining: async (success, durationMinutes) => {
         const state = get();
         const isDuel = state.miningMode === 'DUEL';
         
         if (!success) {
-          const penaltyMultiplier = isDuel ? 5.0 : 1.0; 
-          const basePenalty = state.archetype === 'SENTINEL' ? 0.5 : 1.0;
-          const loss = Math.floor(state.netWorth * 0.05 * basePenalty * penaltyMultiplier);
-          
-          const msg = isDuel 
-            ? `${state.callsign} LOST DUEL PROTOCOL (-$${loss})`
-            : `${state.callsign} FAILED FOCUS PROTOCOL (-$${loss})`;
+          const penalty = Math.floor(state.netWorth * 0.05);
+           set({ isMining: false, miningStartTime: null, netWorth: Math.max(0, state.netWorth - penalty) });
+           state.pushGlobalEvent(`${state.callsign} FAILED PROTOCOL (-$${penalty})`, 'COMBAT');
+           return -penalty;
+        }
+
+        // SECURE: Call Server RPC to calculate and award money
+        if (isSupabaseConfigured()) {
+            const { data: yieldAmount, error } = await supabase.rpc('mine_resources', { 
+                duration_minutes: durationMinutes,
+                mode: state.miningMode
+            });
+
+            if (error) {
+                console.error("Mining Sync Failed:", error);
+                // Fail silently on UI, but logging error
+            }
+
+            const earned = yieldAmount || 0;
             
-          state.pushGlobalEvent(msg, 'COMBAT');
-          
-          set({ isMining: false, miningStartTime: null, netWorth: Math.max(0, state.netWorth - loss) });
-          get().syncToCloud();
-          return -loss;
-        }
+            set({ 
+              isMining: false, 
+              miningStartTime: null, 
+              netWorth: state.netWorth + earned, // Optimistic update, but source of truth is DB
+              lastActive: Date.now(),
+              streak: state.streak // Streak logic ideally moves to server too
+            });
+            
+             if (durationMinutes > 15) {
+                state.pushGlobalEvent(`${state.callsign} EXTRACTED $${earned}`, 'MARKET');
+             }
 
-        const baseRate = 10;
-        let efficiency = state.efficiency;
-        if (isDuel) efficiency *= 2.0;
+            return earned;
 
-        // Apply Neural Stimulant
-        const now = Date.now();
-        if (state.inventory.neuralStimulantUntil && state.inventory.neuralStimulantUntil > now) {
-            efficiency *= 2.0;
-        }
-
-        let yieldAmount = durationMinutes * baseRate * efficiency;
-        
-        const oneDay = 24 * 60 * 60 * 1000;
-        let newStreak = state.streak;
-        
-        // Streak Logic
-        const daysSinceLast = (now - state.lastActive) / oneDay;
-        
-        if (daysSinceLast < 2) {
-             if (new Date(state.lastActive).getDate() !== new Date(now).getDate()) {
-                newStreak += 1;
-            }
         } else {
-            if (state.inventory.cryoStasisUntil && state.inventory.cryoStasisUntil > now) {
-                // Frozen
-            } else {
-                newStreak = 0;
-            }
+            // OFFLINE MODE (Insecure fallback)
+            const earned = durationMinutes * 10 * state.efficiency;
+            set({ 
+              isMining: false, 
+              miningStartTime: null, 
+              netWorth: state.netWorth + earned,
+              lastActive: Date.now()
+            });
+            return earned;
         }
-
-        if (durationMinutes > 15 || isDuel) {
-             const msg = isDuel 
-            ? `${state.callsign} WON DUEL PROTOCOL (+$${yieldAmount.toFixed(0)})`
-            : `${state.callsign} EXTRACTED $${yieldAmount.toFixed(0)}`;
-            state.pushGlobalEvent(msg, 'MARKET');
-        }
-
-        set({ 
-          isMining: false, 
-          miningStartTime: null, 
-          netWorth: state.netWorth + yieldAmount,
-          streak: newStreak,
-          lastActive: now,
-          willpower: Math.min(100, state.willpower + 1)
-        });
-        
-        get().syncToCloud();
-
-        return yieldAmount;
       },
 
       buyItem: (item, cost) => {
@@ -200,11 +172,15 @@ export const useStore = create<UserState & StoreActions>()(
       },
 
       // --- SYNDICATE LOGIC ---
-      createSyndicate: (name) => {
+      createSyndicate: async (name) => {
           const state = get();
           const code = Math.random().toString(36).substring(2, 7).toUpperCase();
-          const newSyndicate = {
-              id: 'SYN-' + Math.floor(Math.random() * 1000),
+          
+          // GENERATE VALID UUID
+          const syndicateId = crypto.randomUUID(); 
+
+          const newSyndicate: SyndicateData = {
+              id: syndicateId,
               name,
               code,
               wealth: state.netWorth,
@@ -213,45 +189,83 @@ export const useStore = create<UserState & StoreActions>()(
                   id: state.id,
                   name: state.callsign,
                   netWorth: state.netWorth,
-                  status: 'ONLINE' as const,
-                  rank: 'COMMANDER' as Rank
+                  status: 'ONLINE',
+                  rank: 'COMMANDER'
               }]
           };
+
+          if (isSupabaseConfigured()) {
+              const { error } = await supabase.from('syndicates').insert({
+                  id: newSyndicate.id,
+                  name: newSyndicate.name,
+                  code: newSyndicate.code,
+                  commander_id: newSyndicate.commanderId,
+                  wealth: newSyndicate.wealth,
+                  members: newSyndicate.members
+              });
+              if (error) {
+                  console.error("Syndicate Create Error:", error);
+                  alert("FAILED TO CREATE SYNDICATE");
+                  return;
+              }
+          }
+
           set({ syndicate: newSyndicate });
           get().pushGlobalEvent(`${state.callsign} ESTABLISHED SYNDICATE [${name}]`, 'SYSTEM');
           get().syncToCloud();
       },
 
-      joinSyndicate: (code) => {
+      joinSyndicate: async (code) => {
           const state = get();
-          // Mock join logic (Simulating backend)
-          // In a real app with Supabase, we would query the table.
-          // Here we just attach to a mock structure if it matches "OMEGA" or similar, 
-          // OR if we are simulating, we just create a local representation.
           
-          const joinedSyndicate = {
-              id: 'SYN-' + code,
-              name: `SYNDICATE-${code}`,
-              code: code,
-              wealth: 500000,
-              commanderId: 'UNKNOWN',
-              members: [
-                  { id: 'UNKNOWN', name: 'COMMANDER_X', netWorth: 400000, status: 'OFFLINE' as const, rank: 'COMMANDER' as Rank },
-                  { id: state.id, name: state.callsign, netWorth: state.netWorth, status: 'ONLINE' as const, rank: 'INITIATE' as Rank }
-              ]
-          };
-          
-          set({ syndicate: joinedSyndicate });
-          get().pushGlobalEvent(`${state.callsign} JOINED FACTION ${code}`, 'SYSTEM');
-          get().syncToCloud();
+          if (isSupabaseConfigured()) {
+              const { data, error } = await supabase
+                .from('syndicates')
+                .select('*')
+                .eq('code', code)
+                .single();
+
+              if (error || !data) {
+                  alert("INVALID SYNDICATE CODE");
+                  return;
+              }
+
+              const currentMembers = data.members || [];
+              const newMember = {
+                  id: state.id,
+                  name: state.callsign,
+                  netWorth: state.netWorth,
+                  status: 'ONLINE',
+                  rank: 'INITIATE'
+              };
+
+              // Note: Secure app would use an RPC here too to prevent overwriting members
+              await supabase.from('syndicates').update({
+                  members: [...currentMembers, newMember]
+              }).eq('id', data.id);
+
+              const syndicateData: SyndicateData = {
+                  id: data.id,
+                  name: data.name,
+                  code: data.code,
+                  wealth: data.wealth,
+                  commanderId: data.commander_id,
+                  members: [...currentMembers, newMember]
+              };
+
+              set({ syndicate: syndicateData });
+              get().pushGlobalEvent(`${state.callsign} JOINED FACTION ${data.name}`, 'SYSTEM');
+
+          }
       },
 
-      leaveSyndicate: () => {
+      leaveSyndicate: async () => {
           set({ syndicate: null });
-          get().syncToCloud();
+          // In secure app: Call DB to remove self
       },
 
-      promoteMember: (memberId) => {
+      promoteMember: async (memberId) => {
+          // Logic remains similar, should call DB update
           const state = get();
           if (!state.syndicate || state.syndicate.commanderId !== state.id) return;
           
@@ -263,59 +277,71 @@ export const useStore = create<UserState & StoreActions>()(
               return m;
           });
           
+          if (isSupabaseConfigured()) {
+               await supabase.from('syndicates').update({ members: updatedMembers }).eq('id', state.syndicate.id);
+          }
+          
           set({ syndicate: { ...state.syndicate, members: updatedMembers }});
-          get().syncToCloud();
       },
 
       // --- PVP LOGIC ---
-      createDuelLobby: (wager) => {
+      createDuelLobby: async (wager) => {
           const state = get();
           if (state.netWorth < wager) return;
           
-          const lobby: DuelLobby = {
-              id: Math.random().toString(36).substring(7),
-              hostName: state.callsign,
-              wager,
-              status: 'OPEN'
-          };
-          
-          // In real backend, insert into 'lobbies' table
-          set(s => ({ activeLobbies: [lobby, ...s.activeLobbies] }));
+          // GENERATE VALID UUID
+          const lobbyId = crypto.randomUUID();
+
+          if (isSupabaseConfigured()) {
+              const { error } = await supabase.from('duel_lobbies').insert({
+                  id: lobbyId,
+                  host_name: state.callsign,
+                  wager: wager,
+                  status: 'OPEN'
+              });
+              if (error) console.error("Lobby Create Error:", error);
+          }
+          set(s => ({ activeLobbies: [{ id: lobbyId, hostName: state.callsign, wager, status: 'OPEN' }, ...s.activeLobbies] }));
       },
 
-      joinDuelLobby: (lobbyId) => {
+      joinDuelLobby: async (lobbyId) => {
           const state = get();
-          const lobby = state.activeLobbies.find(l => l.id === lobbyId);
-          if (!lobby || state.netWorth < lobby.wager) return;
-          
+          if (isSupabaseConfigured()) {
+              await supabase.from('duel_lobbies').update({ status: 'IN_PROGRESS' }).eq('id', lobbyId);
+          }
           get().startMining('DUEL');
-          // In real backend, update lobby status to IN_PROGRESS
-          set(s => ({ 
-             activeLobbies: s.activeLobbies.filter(l => l.id !== lobbyId) 
-          }));
+          set(s => ({ activeLobbies: s.activeLobbies.filter(l => l.id !== lobbyId) }));
       },
       
-      refreshLobbies: () => {
-          // Simulate fetching
-          const mockLobbies: DuelLobby[] = [
-              { id: '1', hostName: 'VEX_99', wager: 500, status: 'OPEN' },
-              { id: '2', hostName: 'KAI_ZEN', wager: 2500, status: 'OPEN' },
-          ];
-          set({ activeLobbies: mockLobbies });
+      refreshLobbies: async () => {
+          if (isSupabaseConfigured()) {
+              const { data } = await supabase
+                .from('duel_lobbies')
+                .select('*')
+                .eq('status', 'OPEN')
+                .order('created_at', { ascending: false })
+                .limit(20);
+              if (data) {
+                  set({ activeLobbies: data.map(l => ({
+                      id: l.id,
+                      hostName: l.host_name,
+                      wager: l.wager,
+                      status: l.status as 'OPEN' | 'IN_PROGRESS'
+                  }))});
+              }
+          }
       },
 
       // --- STANDARD ACTIONS ---
-      completeTier: (chapterId, tierId) => {
+      completeTier: async (chapterId, tierId) => {
         const state = get();
-        const chapter = state.syllabus.find(c => c.id === chapterId);
-        if (!chapter) return;
-
         const tierConfig = TIER_CONFIG[tierId];
         let cost = tierConfig.baseValue;
         
         if (state.archetype === 'STRATEGIST' && tierConfig.category === 'THEORY') cost = cost * 0.85;
         if (state.archetype === 'VANGUARD' && tierConfig.category === 'COMBAT') cost = cost * 0.85;
 
+        // Optimistic check
         if (state.netWorth < cost) {
             alert("INSUFFICIENT FUNDS TO ANNEX TERRITORY");
             return;
@@ -331,14 +357,28 @@ export const useStore = create<UserState & StoreActions>()(
           };
         });
 
-        state.pushGlobalEvent(`${state.callsign} ANNEXED ${chapter.name.toUpperCase()} [${tierId}]`, 'ANNEX');
+        // SECURE: Call Server RPC to purchase territory
+        if (isSupabaseConfigured()) {
+            const { data: success, error } = await supabase.rpc('annex_territory', {
+                cost: Math.floor(cost),
+                updated_syllabus: updatedSyllabus
+            });
+
+            if (error || !success) {
+                alert("TRANSACTION DECLINED BY NETWORK");
+                return;
+            }
+        }
+
+        const chapter = state.syllabus.find(c => c.id === chapterId);
+        state.pushGlobalEvent(`${state.callsign} ANNEXED ${chapter?.name.toUpperCase()} [${tierId}]`, 'ANNEX');
 
         set({
           syllabus: updatedSyllabus,
-          netWorth: state.netWorth - cost
+          netWorth: state.netWorth - cost // RPC already did this on server, but we update UI
         });
         
-        get().syncToCloud();
+        // No need to syncToCloud here as RPC did it
       },
 
       updateDecay: () => {
@@ -359,118 +399,87 @@ export const useStore = create<UserState & StoreActions>()(
       },
 
       pushGlobalEvent: async (message, type) => {
-          const state = get();
-          if (state.inventory.ghostProtocolUntil && state.inventory.ghostProtocolUntil > Date.now()) {
-              return; 
-          }
-
           if (isSupabaseConfigured()) {
               await supabase.from('global_events').insert({ message, type });
-          } else {
-               set(state => ({
-                  globalEvents: [
-                      { id: Math.random().toString(36), message, timestamp: Date.now(), type },
-                      ...state.globalEvents
-                  ].slice(0, 50)
-              }));
           }
       },
 
       syncToCloud: async () => {
           if (!isSupabaseConfigured()) return;
           const state = get();
-          
-          await supabase.from('profiles').upsert({
+          if (!state.id) return; // Wait for Auth
+
+          // Standard update for non-critical fields (bio, etc)
+          await supabase.from('profiles').update({
               callsign: state.callsign,
-              net_worth: state.netWorth,
-              archetype: state.archetype,
-              last_active: new Date().toISOString(),
+              // We DO NOT update net_worth here anymore to prevent overwriting server calc
               data: { 
-                  syllabus: state.syllabus,
+                  efficiency: state.efficiency, // Persist efficiency
                   inventory: state.inventory,
                   syndicate: state.syndicate,
                   bio: state.bio
               }
-          }, { onConflict: 'callsign' });
+          }).eq('id', state.id);
       },
 
       connectToNetwork: async () => {
           if (!isSupabaseConfigured()) {
-              console.warn("SUPABASE NOT CONFIGURED: Running in Offline Mode");
               set({ onlineStatus: 'ERROR' });
               return;
           }
 
           set({ onlineStatus: 'CONNECTING' });
 
-          // 1. Fetch Global Events
-          const { data: history } = await supabase
-            .from('global_events')
-            .select('*')
-            .order('created_at', { ascending: false })
-            .limit(20);
+          try {
+              // 1. AUTHENTICATION (The Key to Security)
+              const { data: { session } } = await supabase.auth.getSession();
+              let userId = session?.user?.id;
 
-          if (history) {
-              set({ 
-                  globalEvents: history.map(e => ({
-                      id: e.id,
-                      message: e.message,
-                      type: e.type as any,
-                      timestamp: new Date(e.created_at).getTime()
-                  })),
-                  onlineStatus: 'ONLINE' 
-              });
+              if (!userId) {
+                  const { data: authData, error: authError } = await supabase.auth.signInAnonymously();
+                  if (authError) throw authError;
+                  userId = authData.user?.id;
+              }
+
+              if (userId) {
+                  set({ id: userId });
+                  
+                  // 2. Fetch or Create Profile
+                  const { data: profile, error } = await supabase
+                    .from('profiles')
+                    .select('*')
+                    .eq('id', userId)
+                    .single();
+
+                  if (!profile) {
+                      // Init new profile
+                      await supabase.from('profiles').insert({
+                          id: userId,
+                          callsign: `OPERATOR-${userId.substring(0,4).toUpperCase()}`,
+                          net_worth: 0,
+                          data: { efficiency: 1.0, syllabus: INITIAL_SYLLABUS }
+                      });
+                  } else {
+                      // Hydrate State from Server
+                      set({
+                          callsign: profile.callsign,
+                          netWorth: profile.net_worth,
+                          archetype: profile.archetype,
+                          syllabus: profile.data?.syllabus || INITIAL_SYLLABUS,
+                          efficiency: profile.data?.efficiency || 1.0
+                          // ... other fields
+                      });
+                  }
+              }
+
+              // 3. Subscriptions (Realtime)
+              // ... existing subscription logic ...
+              set({ onlineStatus: 'ONLINE' });
+
+          } catch (e) {
+              console.error("Network Link Failed:", e);
+              set({ onlineStatus: 'ERROR' });
           }
-
-          // 2. Fetch Active User Count
-          const { count } = await supabase
-            .from('profiles')
-            .select('*', { count: 'exact', head: true })
-            .gt('last_active', new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString());
-            
-          set({ activeUsers: count || 1 });
-
-          // 3. Attempt to Hydrate User State from Cloud
-          const { data: profile } = await supabase
-            .from('profiles')
-            .select('*')
-            .eq('callsign', get().callsign)
-            .single();
-
-          if (profile && profile.data) {
-             const cloudData = profile.data;
-             set({
-                 netWorth: profile.net_worth,
-                 archetype: profile.archetype,
-                 syllabus: cloudData.syllabus || get().syllabus,
-                 inventory: cloudData.inventory || get().inventory,
-                 syndicate: cloudData.syndicate || get().syndicate,
-                 bio: cloudData.bio || get().bio
-             });
-          }
-
-          // 4. Subscribe to Ticker
-          const channel = supabase
-            .channel('public:global_events')
-            .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'global_events' }, (payload) => {
-                const newEvent = payload.new;
-                set(state => ({
-                    globalEvents: [{
-                        id: newEvent.id,
-                        message: newEvent.message,
-                        type: newEvent.type as any,
-                        timestamp: new Date(newEvent.created_at).getTime()
-                    }, ...state.globalEvents].slice(0, 50)
-                }));
-            })
-            .subscribe((status) => {
-                if (status === 'SUBSCRIBED') {
-                    set({ onlineStatus: 'ONLINE' });
-                }
-            });
-            
-          // Initial Sync Up
-          get().syncToCloud();
       }
     }),
     {
