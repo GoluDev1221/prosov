@@ -31,9 +31,18 @@ export const MiningRig: React.FC = () => {
     sirenRef.current.loop = true;
     sirenRef.current.volume = 1.0;
 
-    // Force play to "unlock" audio context immediately on mount (since user just clicked Start)
+    // Force play to "unlock" audio context immediately on mount
     if (soundEnabled) {
-        ambientRef.current.play().catch(e => console.log("Audio play failed (interaction required):", e));
+        // Play Ambient
+        ambientRef.current.play().catch(e => console.log("Ambient play failed:", e));
+        
+        // Prime Siren (Play silently then pause so browser trusts it)
+        const siren = sirenRef.current;
+        siren.volume = 0;
+        siren.play().then(() => {
+            siren.pause();
+            siren.volume = 1.0;
+        }).catch(e => console.log("Siren prime failed:", e));
     }
 
     return () => {
@@ -49,7 +58,6 @@ export const MiningRig: React.FC = () => {
       if (failed) {
           ambientRef.current.pause();
           if (soundEnabled) {
-              // Ensure promise is handled
               const playPromise = sirenRef.current.play();
               if (playPromise !== undefined) {
                   playPromise.catch(e => console.error("Siren blocked:", e));
@@ -78,7 +86,6 @@ export const MiningRig: React.FC = () => {
     // Timer Logic
     const timer = setInterval(() => {
         if (!miningStartTime) return;
-        // Use Date.now() delta so timer is accurate even if tab throttled in background during Study Mode
         const diff = Math.floor((Date.now() - miningStartTime) / 1000);
         setElapsed(diff);
     }, 1000);
