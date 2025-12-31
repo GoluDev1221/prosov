@@ -1,7 +1,7 @@
 
 import React, { useState } from 'react';
 import { supabase } from '../supabaseClient';
-import { Terminal, Shield, AlertTriangle, User, Lock } from 'lucide-react';
+import { Terminal, Shield, AlertTriangle, User, Lock, Info } from 'lucide-react';
 import { INITIAL_SYLLABUS } from '../constants';
 
 export const Auth: React.FC = () => {
@@ -11,10 +11,11 @@ export const Auth: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // CHANGED: Use a standard TLD to pass email validation regex
-  const DOMAIN = 'sovereign-net.com';
+  // CHANGED: Use a cleaner domain. Supabase requires valid email structure.
+  const DOMAIN = 'prosov.app';
 
-  const validateUsername = (u: string) => /^[a-zA-Z0-9_]{3,20}$/.test(u);
+  // Strict Alphanumeric to prevent invalid email characters
+  const validateUsername = (u: string) => /^[a-zA-Z0-9]{3,20}$/.test(u);
 
   const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -22,11 +23,13 @@ export const Auth: React.FC = () => {
     setError(null);
 
     const cleanUsername = username.trim();
+    
+    // Construct email: username@prosov.app
     const email = `${cleanUsername}@${DOMAIN}`;
 
     try {
       if (!validateUsername(cleanUsername)) {
-          throw new Error("INVALID FORMAT. USE 3-20 ALPHANUMERIC CHARS OR UNDERSCORE.");
+          throw new Error("INVALID FORMAT. USE 3-20 LETTERS/NUMBERS ONLY. NO SPACES.");
       }
 
       if (view === 'SIGNUP') {
@@ -59,8 +62,6 @@ export const Auth: React.FC = () => {
             });
             
             if (profileError) {
-                // If profile fails, user exists in Auth but not DB. 
-                // In a real app we'd handle this cleanup, but here we just warn.
                 console.error(profileError);
                 throw new Error("IDENTITY CREATION FAILED. TRY AGAIN.");
             }
@@ -68,7 +69,6 @@ export const Auth: React.FC = () => {
             alert("OPERATIVE REGISTERED. INITIALIZING LINK...");
             window.location.reload(); 
         } else {
-             // If user creation returns no user object, it usually implies email confirm is required and failed
              alert("VERIFICATION REQUIRED. CHECK SYSTEM ADMIN.");
         }
 
@@ -129,9 +129,12 @@ export const Auth: React.FC = () => {
                     required
                     value={username}
                     onChange={e => setUsername(e.target.value)}
-                    placeholder="e.g. NEO_01"
+                    placeholder="e.g. NEO01"
                     className="w-full bg-[#050505] border border-gray-700 p-3 text-white focus:border-[#00f7ff] outline-none font-bold tracking-wider"
                 />
+                 <div className="text-[9px] text-gray-600 flex items-center gap-1">
+                    <Info size={9}/> Letters and Numbers Only. No Spaces.
+                 </div>
             </div>
             <div className="space-y-1">
                 <label className="text-[10px] text-gray-500 tracking-wider flex items-center gap-1">
