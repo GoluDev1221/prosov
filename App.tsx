@@ -1,3 +1,4 @@
+
 import React, { useEffect, useState } from 'react';
 import { useStore } from './store';
 import { getDaysRemaining, getDefconLevel } from './utils';
@@ -8,10 +9,12 @@ import { MiningRig } from './components/MiningRig';
 import { BlackMarket } from './components/BlackMarket';
 import { Arena } from './components/Arena';
 import { Syndicates } from './components/Syndicates';
+import { Manual } from './components/Manual';
+import { Profile } from './components/Profile';
 import { Shield, Map, Cpu, ShoppingBag, Swords, Terminal, Wifi, Radio, Users } from 'lucide-react';
 
 const App: React.FC = () => {
-  const { archetype, isMining, updateDecay, connectToNetwork, onlineStatus, activeUsers } = useStore();
+  const { archetype, isMining, updateDecay, connectToNetwork, onlineStatus, activeUsers, showManual, showProfile } = useStore();
   const [currentView, setCurrentView] = useState<'COMMAND' | 'INTEL' | 'MARKET' | 'ARENA' | 'SYNDICATE'>('COMMAND');
   const [defcon, setDefcon] = useState(5);
 
@@ -39,6 +42,9 @@ const App: React.FC = () => {
   return (
     <div className={`min-h-screen bg-[#050505] font-mono selection:bg-[#00f7ff] selection:text-black flex flex-col pb-24 ${isCritical ? 'animate-pulse-slow' : ''}`}>
       
+      {showManual && <Manual />}
+      {showProfile && <Profile />}
+
       {/* Header */}
       <header className={`p-4 border-b border-opacity-20 flex justify-between items-center ${themeColor} bg-black/80 backdrop-blur-md sticky top-0 z-40`}>
         <div className="flex items-center gap-2">
