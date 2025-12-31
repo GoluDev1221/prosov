@@ -11,55 +11,106 @@ export const MiningRig: React.FC = () => {
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [studyMode, setStudyMode] = useState(false);
   
-  // Refs for Audio (Only Siren)
-  const sirenRef = useRef<HTMLAudioElement | null>(null);
+  // Audio Refs
+  const audioCtxRef = useRef<AudioContext | null>(null);
+  const oscRef = useRef<OscillatorNode | null>(null);
+  const gainRef = useRef<GainNode | null>(null);
+  const sirenIntervalRef = useRef<number | null>(null);
 
   const isDuel = miningMode === 'DUEL';
   const themeColor = isDuel ? 'text-red-500' : 'text-[#00f7ff]';
   const borderColor = isDuel ? 'border-red-500' : 'border-[#00f7ff]';
   const shadowColor = isDuel ? 'shadow-[0_0_50px_rgba(239,68,68,0.2)]' : 'shadow-[0_0_50px_rgba(0,247,255,0.2)]';
 
-  // Audio Initialization
+  // Initialize Audio Context on Mount (captured from user interaction)
   useEffect(() => {
-    // Siren audio setup
-    sirenRef.current = new Audio('https://assets.mixkit.co/active_storage/sfx/3004/3004-preview.mp3'); // Emergency Alarm
-    sirenRef.current.loop = true;
-    sirenRef.current.volume = 1.0;
-
-    // Prime Siren (Play silently then pause so browser trusts it) - Crucial for autoplay policies
-    if (soundEnabled) {
-        const siren = sirenRef.current;
-        siren.volume = 0;
-        siren.play().then(() => {
-            siren.pause();
-            siren.volume = 1.0;
-        }).catch(e => console.log("Siren prime failed:", e));
-    }
+    const initAudio = async () => {
+        try {
+            const AudioContext = window.AudioContext || (window as any).webkitAudioContext;
+            if (!AudioContext) return;
+            
+            const ctx = new AudioContext();
+            audioCtxRef.current = ctx;
+            
+            // Resume immediately to unlock audio subsystem while we have user gesture context
+            if (ctx.state === 'suspended') {
+                await ctx.resume();
+            }
+        } catch (e) {
+            console.error("Audio Init Failed", e);
+        }
+    };
+    initAudio();
 
     return () => {
-        sirenRef.current?.pause();
+        stopSiren();
+        audioCtxRef.current?.close();
     };
   }, []);
 
+  const startSiren = () => {
+      if (!soundEnabled || !audioCtxRef.current) return;
+      
+      const ctx = audioCtxRef.current;
+      
+      // Stop previous if any
+      stopSiren();
+
+      // Create Oscillator (Sawtooth for harsh alarm sound)
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      
+      osc.type = 'sawtooth';
+      gain.gain.value = 0.3; // Volume
+      
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start();
+
+      oscRef.current = osc;
+      gainRef.current = gain;
+
+      // Modulation Loop for Siren Effect (High-Low-High)
+      const modulate = () => {
+          const now = ctx.currentTime;
+          osc.frequency.cancelScheduledValues(now);
+          osc.frequency.setValueAtTime(800, now);
+          osc.frequency.linearRampToValueAtTime(1500, now + 0.5);
+          osc.frequency.linearRampToValueAtTime(800, now + 1.0);
+      };
+
+      modulate();
+      sirenIntervalRef.current = window.setInterval(modulate, 1000);
+  };
+
+  const stopSiren = () => {
+      if (oscRef.current) {
+          try { oscRef.current.stop(); } catch (e) {}
+          oscRef.current.disconnect();
+          oscRef.current = null;
+      }
+      if (gainRef.current) {
+          gainRef.current.disconnect();
+          gainRef.current = null;
+      }
+      if (sirenIntervalRef.current) {
+          clearInterval(sirenIntervalRef.current);
+          sirenIntervalRef.current = null;
+      }
+  };
+
   // Toggle Sound Logic (Only on Failure)
   useEffect(() => {
-      if (!sirenRef.current) return;
-      
       if (failed && soundEnabled) {
-          const playPromise = sirenRef.current.play();
-          if (playPromise !== undefined) {
-              playPromise.catch(e => console.error("Siren blocked:", e));
-          }
+          startSiren();
       } else {
-          sirenRef.current.pause();
-          sirenRef.current.currentTime = 0;
+          stopSiren();
       }
   }, [soundEnabled, failed]);
 
   // Focus & Anti-Cheat Logic
   useEffect(() => {
     const handleVisibilityChange = () => {
-      // If user is in "Study Mode" (e.g. watching PW.LIVE), we ignore visibility changes
       if (studyMode) return;
 
       if (document.hidden) {
@@ -83,6 +134,7 @@ export const MiningRig: React.FC = () => {
   }, [miningStartTime, studyMode]);
 
   const handleStop = () => {
+    stopSiren();
     const minutes = Math.floor(elapsed / 60);
     stopMining(!failed, minutes);
   };
