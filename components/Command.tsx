@@ -5,6 +5,7 @@ import { EXAM_DATE } from '../constants';
 import { formatCurrency, getRandomQuote } from '../utils';
 import { POWER_LAWS } from '../constants';
 import { TrendingUp, Activity, Skull, Book, User } from 'lucide-react';
+import { InfoTooltip } from './InfoTooltip';
 
 interface Props {
   defcon: number;
@@ -40,7 +41,7 @@ export const Command: React.FC<Props> = ({ defcon }) => {
   const borderColor = isDanger ? 'border-red-500' : 'border-[#00f7ff]';
 
   return (
-    <div className="space-y-6 animate-in fade-in duration-500">
+    <div className="space-y-6 animate-in fade-in duration-500 pb-24">
       
       {/* Action Bar */}
       <div className="flex gap-2">
@@ -62,18 +63,24 @@ export const Command: React.FC<Props> = ({ defcon }) => {
 
       {/* The Ledger */}
       <div className="grid grid-cols-2 gap-4">
-        <div className={`bg-black border ${borderColor} p-4 flex flex-col justify-between h-32`}>
+        <div className={`bg-black border ${borderColor} p-4 flex flex-col justify-between h-32 relative`}>
           <div className="flex justify-between items-start">
-            <span className="text-[10px] text-gray-400">LIQUID ASSETS</span>
+            <div className="flex items-center">
+                <span className="text-[10px] text-gray-400">LIQUID ASSETS</span>
+                <InfoTooltip text="Your current score based on study hours and territory held. Used to buy upgrades." />
+            </div>
             <Activity size={16} className={primaryColor} />
           </div>
           <div className="text-2xl font-bold tracking-tight">{formatCurrency(netWorth)}</div>
           <div className="text-[10px] text-gray-500">EFFICIENCY: {efficiency}x</div>
         </div>
 
-        <div className={`bg-black border ${borderColor} p-4 flex flex-col justify-between h-32`}>
+        <div className={`bg-black border ${borderColor} p-4 flex flex-col justify-between h-32 relative`}>
            <div className="flex justify-between items-start">
-            <span className="text-[10px] text-gray-400">PROJECTED VALUE</span>
+            <div className="flex items-center">
+                <span className="text-[10px] text-gray-400">PROJECTED VALUE</span>
+                <InfoTooltip text="Compound Annual Growth Rate. Your estimated score on Exam Day based on current pace." />
+            </div>
             <TrendingUp size={16} className={primaryColor} />
           </div>
           <div className="text-xl font-bold tracking-tight opacity-80">{formatCurrency(projectedNW)}</div>
@@ -90,7 +97,6 @@ export const Command: React.FC<Props> = ({ defcon }) => {
                     {event.message} <span className="text-[9px] opacity-50">[{new Date(event.timestamp).toLocaleTimeString()}]</span>
                 </span>
             ))}
-             {/* Duplicate for smooth loop if enough events exist */}
              {globalEvents.length > 5 && globalEvents.slice(0, 10).map((event) => (
                 <span key={`dup-${event.id}`} className="flex items-center gap-2">
                      <span className={`w-1 h-1 rounded-full inline-block ${event.type === 'COMBAT' ? 'bg-red-500' : 'bg-[#00f7ff]'}`}></span>
