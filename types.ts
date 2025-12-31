@@ -55,10 +55,12 @@ export interface SyndicateData {
 export interface DuelLobby {
     id: string;
     hostName: string;
-    hostId: string; // Added to prevent self-joining
+    hostId: string;
+    challengerId?: string; // ID of the person who joined
+    winnerId?: string; // ID of the winner
     wager: number;
     duration: number; // in minutes
-    status: 'OPEN' | 'IN_PROGRESS';
+    status: 'OPEN' | 'IN_PROGRESS' | 'FINISHED';
 }
 
 export interface UserState {
@@ -83,6 +85,7 @@ export interface UserState {
   miningMode: 'STANDARD' | 'DUEL'; 
   currentWager: number; // Track active wager for payout logic
   hostingLobbyId: string | null; // Track if user is waiting in lobby
+  activeDuelId: string | null; // Track the active duel ID when playing
   defconLevel: number; 
   
   // Economy Items
