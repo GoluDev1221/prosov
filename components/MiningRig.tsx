@@ -11,8 +11,7 @@ export const MiningRig: React.FC = () => {
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [studyMode, setStudyMode] = useState(false);
   
-  // Refs for Audio
-  const ambientRef = useRef<HTMLAudioElement | null>(null);
+  // Refs for Audio (Only Siren)
   const sirenRef = useRef<HTMLAudioElement | null>(null);
 
   const isDuel = miningMode === 'DUEL';
@@ -22,21 +21,13 @@ export const MiningRig: React.FC = () => {
 
   // Audio Initialization
   useEffect(() => {
-    // Standard sounds from reliable CDN
-    ambientRef.current = new Audio('https://assets.mixkit.co/active_storage/sfx/2568/2568-preview.mp3'); // Low Drone
-    ambientRef.current.loop = true;
-    ambientRef.current.volume = 0.5;
-
+    // Siren audio setup
     sirenRef.current = new Audio('https://assets.mixkit.co/active_storage/sfx/3004/3004-preview.mp3'); // Emergency Alarm
     sirenRef.current.loop = true;
     sirenRef.current.volume = 1.0;
 
-    // Force play to "unlock" audio context immediately on mount
+    // Prime Siren (Play silently then pause so browser trusts it) - Crucial for autoplay policies
     if (soundEnabled) {
-        // Play Ambient
-        ambientRef.current.play().catch(e => console.log("Ambient play failed:", e));
-        
-        // Prime Siren (Play silently then pause so browser trusts it)
         const siren = sirenRef.current;
         siren.volume = 0;
         siren.play().then(() => {
@@ -46,28 +37,22 @@ export const MiningRig: React.FC = () => {
     }
 
     return () => {
-        ambientRef.current?.pause();
         sirenRef.current?.pause();
     };
   }, []);
 
-  // Toggle Sound Logic
+  // Toggle Sound Logic (Only on Failure)
   useEffect(() => {
-      if (!ambientRef.current || !sirenRef.current) return;
+      if (!sirenRef.current) return;
       
-      if (failed) {
-          ambientRef.current.pause();
-          if (soundEnabled) {
-              const playPromise = sirenRef.current.play();
-              if (playPromise !== undefined) {
-                  playPromise.catch(e => console.error("Siren blocked:", e));
-              }
+      if (failed && soundEnabled) {
+          const playPromise = sirenRef.current.play();
+          if (playPromise !== undefined) {
+              playPromise.catch(e => console.error("Siren blocked:", e));
           }
       } else {
           sirenRef.current.pause();
           sirenRef.current.currentTime = 0;
-          if (soundEnabled) ambientRef.current.play().catch(() => {});
-          else ambientRef.current.pause();
       }
   }, [soundEnabled, failed]);
 
@@ -160,7 +145,7 @@ export const MiningRig: React.FC = () => {
       <div className="mt-8 text-center space-y-2">
         <p className="text-gray-500 tracking-widest text-xs flex items-center justify-center">
             {isDuel ? 'DUEL IN PROGRESS' : 'MINING IN PROGRESS'}
-            <InfoTooltip text="Strict focus enforced. Switching tabs or closing app triggers the Siren and forfeits rewards. Use the link below for whitelisted study material." />
+            <InfoTooltip text="Strict focus enforced. Switching tabs or closing app triggers the Siren and forfeits rewards." />
         </p>
         <p className={`${themeColor} text-sm animate-pulse`}>
             {studyMode ? 'EXTERNAL LINK ACTIVE: PW.LIVE' : 'DO NOT EXIT THE MATRIX'}
