@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useStore } from '../store';
 import { AlertOctagon, Power, Swords, Volume2, VolumeX } from 'lucide-react';
+import { InfoTooltip } from './InfoTooltip';
 
 export const MiningRig: React.FC = () => {
   const { stopMining, miningStartTime, miningMode, callsign } = useStore();
@@ -25,8 +26,8 @@ export const MiningRig: React.FC = () => {
     ambientRef.current.loop = true;
     ambientRef.current.volume = 0.5;
 
-    // Siren: Alarm
-    sirenRef.current = new Audio('https://cdn.pixabay.com/audio/2021/08/04/audio_0625c1539c.mp3');
+    // Siren: WW2 Air Raid Siren (Real Warning Sound)
+    sirenRef.current = new Audio('https://cdn.pixabay.com/audio/2021/08/09/audio_0ac4267e37.mp3');
     sirenRef.current.loop = true;
 
     if (soundEnabled) {
@@ -126,7 +127,10 @@ export const MiningRig: React.FC = () => {
       </div>
       
       <div className="mt-8 text-center space-y-2">
-        <p className="text-gray-500 tracking-widest text-xs">{isDuel ? 'DUEL IN PROGRESS' : 'MINING IN PROGRESS...'}</p>
+        <p className="text-gray-500 tracking-widest text-xs flex items-center justify-center">
+            {isDuel ? 'DUEL IN PROGRESS' : 'MINING IN PROGRESS...'}
+            <InfoTooltip text="Stay on this screen. Do not switch tabs. Do not let screen sleep." />
+        </p>
         <p className={`${themeColor} text-sm animate-pulse`}>{isDuel ? 'OPPONENT ACTIVE - DO NOT YIELD' : 'DO NOT EXIT THE MATRIX'}</p>
         <p className="text-[10px] text-gray-600">OPERATOR: {callsign}</p>
       </div>
