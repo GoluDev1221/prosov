@@ -12,8 +12,9 @@ export const Syndicates: React.FC = () => {
   const [inputName, setInputName] = useState('');
   const [view, setView] = useState<'JOIN' | 'CREATE'>('JOIN');
 
-  // Low Cost for beginners
-  const SYNDICATE_COST = 500;
+  // Updated Costs
+  const CREATE_COST = 10;
+  const JOIN_COST = 5;
 
   if (!syndicate) {
       return (
@@ -41,12 +42,15 @@ export const Syndicates: React.FC = () => {
                         />
                         <div className="absolute right-2 top-3"><InfoTooltip text="Ask your friends for their Syndicate Code." /></div>
                     </div>
+                    <div className="text-[10px] text-gray-500">
+                        CONTRIBUTION REQUIRED: {formatCurrency(JOIN_COST)}
+                    </div>
                     <button 
                         onClick={() => joinSyndicate(inputCode)}
-                        disabled={!inputCode}
+                        disabled={!inputCode || netWorth < JOIN_COST}
                         className="w-full bg-[#00f7ff]/10 border border-[#00f7ff] text-[#00f7ff] py-3 font-bold hover:bg-[#00f7ff] hover:text-black transition-all disabled:opacity-50"
                     >
-                        INITIATE LINK
+                        INITIATE LINK ({formatCurrency(JOIN_COST)})
                     </button>
                 </div>
               ) : (
@@ -59,12 +63,12 @@ export const Syndicates: React.FC = () => {
                         className="w-full bg-black border border-gray-700 p-3 text-center text-[#00f7ff] focus:border-[#00f7ff] outline-none"
                     />
                     <div className="text-[10px] text-gray-500 flex justify-center items-center gap-1">
-                        COST: {formatCurrency(SYNDICATE_COST)} 
-                        <InfoTooltip text={`Reduced from $2500 for accessibility. Only ${formatCurrency(SYNDICATE_COST)} required.`} />
+                        COST: {formatCurrency(CREATE_COST)} 
+                        <InfoTooltip text={`Reduced to ${formatCurrency(CREATE_COST)} for accessibility.`} />
                     </div>
                     <button 
                         onClick={() => createSyndicate(inputName)}
-                        disabled={!inputName || netWorth < SYNDICATE_COST}
+                        disabled={!inputName || netWorth < CREATE_COST}
                         className="w-full bg-[#00f7ff]/10 border border-[#00f7ff] text-[#00f7ff] py-3 font-bold hover:bg-[#00f7ff] hover:text-black transition-all disabled:opacity-50"
                     >
                         ESTABLISH FACTION
