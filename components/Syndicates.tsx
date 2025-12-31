@@ -12,6 +12,9 @@ export const Syndicates: React.FC = () => {
   const [inputName, setInputName] = useState('');
   const [view, setView] = useState<'JOIN' | 'CREATE'>('JOIN');
 
+  // Low Cost for beginners
+  const SYNDICATE_COST = 500;
+
   if (!syndicate) {
       return (
           <div className="h-full flex flex-col items-center p-6 text-center animate-in fade-in">
@@ -28,13 +31,16 @@ export const Syndicates: React.FC = () => {
 
               {view === 'JOIN' ? (
                 <div className="w-full max-w-xs space-y-4">
-                    <input 
-                        type="text" 
-                        placeholder="ENTER SYNDICATE CODE"
-                        value={inputCode}
-                        onChange={(e) => setInputCode(e.target.value.toUpperCase())}
-                        className="w-full bg-black border border-gray-700 p-3 text-center text-[#00f7ff] focus:border-[#00f7ff] outline-none"
-                    />
+                    <div className="relative">
+                        <input 
+                            type="text" 
+                            placeholder="ENTER SYNDICATE CODE"
+                            value={inputCode}
+                            onChange={(e) => setInputCode(e.target.value.toUpperCase())}
+                            className="w-full bg-black border border-gray-700 p-3 text-center text-[#00f7ff] focus:border-[#00f7ff] outline-none"
+                        />
+                        <div className="absolute right-2 top-3"><InfoTooltip text="Ask your friends for their Syndicate Code." /></div>
+                    </div>
                     <button 
                         onClick={() => joinSyndicate(inputCode)}
                         disabled={!inputCode}
@@ -52,10 +58,13 @@ export const Syndicates: React.FC = () => {
                         onChange={(e) => setInputName(e.target.value.toUpperCase())}
                         className="w-full bg-black border border-gray-700 p-3 text-center text-[#00f7ff] focus:border-[#00f7ff] outline-none"
                     />
-                    <div className="text-[10px] text-gray-500">COST: $2,500 NW</div>
+                    <div className="text-[10px] text-gray-500 flex justify-center items-center gap-1">
+                        COST: {formatCurrency(SYNDICATE_COST)} 
+                        <InfoTooltip text={`Reduced from $2500 for accessibility. Only ${formatCurrency(SYNDICATE_COST)} required.`} />
+                    </div>
                     <button 
                         onClick={() => createSyndicate(inputName)}
-                        disabled={!inputName || netWorth < 2500}
+                        disabled={!inputName || netWorth < SYNDICATE_COST}
                         className="w-full bg-[#00f7ff]/10 border border-[#00f7ff] text-[#00f7ff] py-3 font-bold hover:bg-[#00f7ff] hover:text-black transition-all disabled:opacity-50"
                     >
                         ESTABLISH FACTION
@@ -82,12 +91,12 @@ export const Syndicates: React.FC = () => {
         <div className="border-b border-[#00f7ff]/30 pb-4 flex justify-between items-end">
             <div>
                 <h2 className="text-xl font-bold text-[#00f7ff]">{syndicate.name}</h2>
-                <p className="text-xs text-gray-500">CODE: <span className="text-white font-mono">{syndicate.code}</span></p>
+                <p className="text-xs text-gray-500">CODE: <span className="text-white font-mono select-all">{syndicate.code}</span></p>
             </div>
             <div className="text-right">
                 <p className="text-xl font-bold text-white flex items-center justify-end">
                     {formatCurrency(totalWealth)}
-                    <InfoTooltip text="Total Net Worth of all members." />
+                    <InfoTooltip text="Sum of all members' Net Worth. Determines Leaderboard rank." />
                 </p>
                 <p className="text-[10px] text-gray-500">COLLECTIVE WEALTH</p>
             </div>
@@ -101,7 +110,7 @@ export const Syndicates: React.FC = () => {
                 <div className="flex-1 bg-black border border-gray-800 p-2 opacity-50 relative group">
                     <div className="text-[10px] text-gray-500">EFFICIENCY</div>
                     <div className="text-[#00f7ff]">+5%</div>
-                    <div className="absolute top-1 right-1"><InfoTooltip text="Boosts mining yield for all members."/></div>
+                    <div className="absolute top-1 right-1"><InfoTooltip text="Passive bonus applied to all mining sessions."/></div>
                 </div>
                 <div className="flex-1 bg-black border border-gray-800 p-2 opacity-50">
                     <div className="text-[10px] text-gray-500">DEFENSE</div>
@@ -134,7 +143,7 @@ export const Syndicates: React.FC = () => {
                         <div className="flex items-center gap-4">
                             <span className="text-xs font-mono text-[#00f7ff]">{formatCurrency(member.netWorth)}</span>
                             {isCommander && member.id !== id && (
-                                <button onClick={() => promoteMember(member.id)} className="text-gray-600 hover:text-[#00f7ff]">
+                                <button onClick={() => promoteMember(member.id)} className="text-gray-600 hover:text-[#00f7ff]" title="Promote">
                                     <ChevronUp size={14} />
                                 </button>
                             )}
