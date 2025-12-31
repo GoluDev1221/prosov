@@ -11,7 +11,7 @@ import { Arena } from './components/Arena';
 import { Syndicates } from './components/Syndicates';
 import { Manual } from './components/Manual';
 import { Profile } from './components/Profile';
-import { Shield, Map, Cpu, ShoppingBag, Swords, Terminal, Wifi, Radio, Users } from 'lucide-react';
+import { Shield, Map, Cpu, ShoppingBag, Swords, Terminal, Wifi, Radio, Users, WifiOff } from 'lucide-react';
 
 const App: React.FC = () => {
   const { archetype, isMining, updateDecay, connectToNetwork, onlineStatus, activeUsers, showManual, showProfile } = useStore();
@@ -53,9 +53,18 @@ const App: React.FC = () => {
         </div>
         
         <div className="flex items-center gap-4">
-            <div className={`flex items-center gap-2 text-[9px] tracking-widest border border-gray-800 px-2 py-1 bg-black/50 ${onlineStatus === 'ONLINE' ? 'text-[#00f7ff]' : 'text-yellow-500'}`}>
-                {onlineStatus === 'ONLINE' ? <Wifi size={12} /> : <Radio size={12} className="animate-spin" />}
-                <span>{onlineStatus === 'ONLINE' ? `NET: ONLINE (${activeUsers})` : 'SYNCING...'}</span>
+            <div className={`flex items-center gap-2 text-[9px] tracking-widest border border-gray-800 px-2 py-1 bg-black/50 ${
+                onlineStatus === 'ONLINE' ? 'text-[#00f7ff]' : 
+                onlineStatus === 'ERROR' ? 'text-red-500' : 'text-yellow-500'
+            }`}>
+                {onlineStatus === 'ONLINE' ? <Wifi size={12} /> : 
+                 onlineStatus === 'ERROR' ? <WifiOff size={12} /> : 
+                 <Radio size={12} className="animate-spin" />}
+                
+                <span>
+                  {onlineStatus === 'ONLINE' ? `NET: ONLINE (${activeUsers})` : 
+                   onlineStatus === 'ERROR' ? 'NET: OFFLINE' : 'SYNCING...'}
+                </span>
             </div>
             <div className={`text-xs px-2 py-1 border ${themeColor} ${glowClass}`}>
             DEFCON {defcon}
