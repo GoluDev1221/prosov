@@ -1,34 +1,89 @@
 
 import React, { useState } from 'react';
 import { supabase } from '../supabaseClient';
-import { Terminal, Shield, AlertTriangle } from 'lucide-react';
+import { Terminal, Shield, AlertTriangle, User, Lock } from 'lucide-react';
+import { INITIAL_SYLLABUS } from '../constants';
 
 export const Auth: React.FC = () => {
   const [view, setView] = useState<'LOGIN' | 'SIGNUP'>('LOGIN');
-  const [email, setEmail] = useState('');
+  const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Fake domain for mapping username to email
+  const DOMAIN = 'project-sovereign.local';
+
+  const validateUsername = (u: string) => /^[a-zA-Z0-9_]{3,20}$/.test(u);
 
   const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     setError(null);
 
+    const cleanUsername = username.trim();
+    const email = `${cleanUsername}@${DOMAIN}`;
+
     try {
+      if (!validateUsername(cleanUsername)) {
+          throw new Error("INVALID FORMAT. USE 3-20 ALPHANUMERIC CHARS OR UNDERSCORE.");
+      }
+
       if (view === 'SIGNUP') {
-        const { error } = await supabase.auth.signUp({
+        // 1. Check Uniqueness manually since we can't enforce SQL constraint easily from here
+        const { data: existing, error: checkError } = await supabase
+            .from('profiles')
+            .select('id')
+            .ilike('callsign', cleanUsername) // Case-insensitive check
+            .single();
+
+        if (existing) {
+            throw new Error("CODENAME ALREADY OCCUPIED");
+        }
+        
+        // Ignore "PGRST116" error which means no rows found (good for us)
+        if (checkError && checkError.code !== 'PGRST116') {
+            console.error(checkError); // Log unexpected db errors
+        }
+
+        // 2. Sign Up
+        const { data: authData, error: authError } = await supabase.auth.signUp({
           email,
           password,
         });
-        if (error) throw error;
-        alert("REGISTRATION COMPLETE. VERIFY EMAIL TO INITIATE LINK.");
+
+        if (authError) throw authError;
+
+        // 3. Create Profile
+        if (authData.user) {
+            const { error: profileError } = await supabase.from('profiles').insert({
+                id: authData.user.id,
+                callsign: cleanUsername.toUpperCase(),
+                net_worth: 0,
+                data: { efficiency: 1.0, syllabus: INITIAL_SYLLABUS }
+            });
+            
+            if (profileError) {
+                // Determine if it was a duplicate key error just in case race condition
+                throw new Error("PROFILE CREATION FAILED. RETRY.");
+            }
+            
+            alert("OPERATIVE REGISTERED. INITIALIZING LINK...");
+            window.location.reload(); // Force reload to ensure session pick-up
+        } else {
+             alert("VERIFICATION REQUIRED. CHECK SYSTEM ADMIN.");
+        }
+
       } else {
+        // Login
         const { error } = await supabase.auth.signInWithPassword({
           email,
           password,
         });
-        if (error) throw error;
+        if (error) {
+            if (error.message.includes("Invalid login")) throw new Error("INVALID CREDENTIALS");
+            throw error;
+        }
       }
     } catch (err: any) {
       setError(err.message || 'AUTHENTICATION FAILED');
@@ -52,13 +107,13 @@ export const Auth: React.FC = () => {
 
         <div className="flex gap-4 mb-8 border-b border-gray-800 pb-1">
             <button 
-                onClick={() => setView('LOGIN')}
+                onClick={() => { setView('LOGIN'); setError(null); }}
                 className={`flex-1 pb-2 text-xs font-bold ${view === 'LOGIN' ? 'text-[#00f7ff] border-b-2 border-[#00f7ff]' : 'text-gray-600'}`}
             >
                 LOGIN
             </button>
             <button 
-                 onClick={() => setView('SIGNUP')}
+                 onClick={() => { setView('SIGNUP'); setError(null); }}
                  className={`flex-1 pb-2 text-xs font-bold ${view === 'SIGNUP' ? 'text-[#00f7ff] border-b-2 border-[#00f7ff]' : 'text-gray-600'}`}
             >
                 REGISTER
@@ -66,18 +121,23 @@ export const Auth: React.FC = () => {
         </div>
 
         <form onSubmit={handleAuth} className="space-y-4">
-            <div>
-                <label className="text-[10px] text-gray-500 tracking-wider">NET LINK ID (EMAIL)</label>
+            <div className="space-y-1">
+                <label className="text-[10px] text-gray-500 tracking-wider flex items-center gap-1">
+                    <User size={10} /> CODENAME (USERNAME)
+                </label>
                 <input 
-                    type="email" 
+                    type="text" 
                     required
-                    value={email}
-                    onChange={e => setEmail(e.target.value)}
-                    className="w-full bg-[#050505] border border-gray-700 p-3 text-white focus:border-[#00f7ff] outline-none"
+                    value={username}
+                    onChange={e => setUsername(e.target.value)}
+                    placeholder="e.g. NEO_01"
+                    className="w-full bg-[#050505] border border-gray-700 p-3 text-white focus:border-[#00f7ff] outline-none font-bold tracking-wider"
                 />
             </div>
-            <div>
-                <label className="text-[10px] text-gray-500 tracking-wider">ENCRYPTION KEY (PASSWORD)</label>
+            <div className="space-y-1">
+                <label className="text-[10px] text-gray-500 tracking-wider flex items-center gap-1">
+                    <Lock size={10} /> PASSPHRASE
+                </label>
                 <input 
                     type="password" 
                     required
@@ -99,14 +159,14 @@ export const Auth: React.FC = () => {
                 disabled={loading}
                 className="w-full py-4 bg-[#00f7ff] text-black font-black tracking-widest hover:bg-white transition-colors disabled:opacity-50 mt-4"
             >
-                {loading ? 'ESTABLISHING UPLINK...' : (view === 'LOGIN' ? 'INITIATE SESSION' : 'CREATE OPERATIVE')}
+                {loading ? 'PROCESSING...' : (view === 'LOGIN' ? 'ESTABLISH LINK' : 'CREATE IDENTITY')}
             </button>
         </form>
 
         <div className="mt-6 text-center">
              <div className="text-[10px] text-gray-600 flex justify-center items-center gap-2">
                  <Shield size={10} />
-                 SECURE CONNECTION REQUIRED
+                 SECURE ENCRYPTED CONNECTION
              </div>
         </div>
       </div>
