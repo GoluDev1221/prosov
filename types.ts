@@ -56,6 +56,7 @@ export interface DuelLobby {
     id: string;
     hostName: string;
     wager: number;
+    duration: number; // in minutes
     status: 'OPEN' | 'IN_PROGRESS';
 }
 
