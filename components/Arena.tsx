@@ -3,10 +3,11 @@ import React, { useEffect, useState } from 'react';
 import { Swords, Users, Globe, Plus, Play } from 'lucide-react';
 import { useStore } from '../store';
 import { formatCurrency } from '../utils';
+import { InfoTooltip } from './InfoTooltip';
 
 export const Arena: React.FC = () => {
   const { activeUsers, netWorth, activeLobbies, createDuelLobby, joinDuelLobby, refreshLobbies, callsign } = useStore();
-  const [wagerInput, setWagerInput] = useState(500);
+  const [wagerInput, setWagerInput] = useState(50); // Lowered from 500
 
   useEffect(() => {
       refreshLobbies();
@@ -20,10 +21,13 @@ export const Arena: React.FC = () => {
   };
 
   return (
-    <div className="flex flex-col h-full animate-in fade-in">
+    <div className="flex flex-col h-full animate-in fade-in pb-20">
         <div className="mb-6 flex justify-between items-end border-b border-gray-800 pb-2">
             <div>
-                <h2 className="text-xl font-bold text-[#00f7ff]">THE ARENA</h2>
+                <h2 className="text-xl font-bold text-[#00f7ff] flex items-center">
+                    THE ARENA
+                    <InfoTooltip text="1v1 Focus Duels. Winner takes the pot. Loser gets nothing." />
+                </h2>
                 <p className="text-xs text-gray-500">PVP CONTRACTS // {callsign}</p>
             </div>
             <div className="text-right">
@@ -60,7 +64,7 @@ export const Arena: React.FC = () => {
                     value={wagerInput}
                     onChange={(e) => setWagerInput(Number(e.target.value))}
                     className="bg-black border border-gray-700 p-2 text-white w-32 outline-none focus:border-[#00f7ff]"
-                    min={100}
+                    min={50}
                 />
                 <button 
                     onClick={handleCreate}
@@ -70,6 +74,7 @@ export const Arena: React.FC = () => {
                     <Plus size={16} /> POST WAGER
                 </button>
             </div>
+            <p className="text-[10px] text-gray-600 mt-2">MIN WAGER: $50</p>
         </div>
 
         {/* Lobby List */}
@@ -87,7 +92,7 @@ export const Arena: React.FC = () => {
                          <div key={lobby.id} className="bg-[#111] border border-gray-800 p-3 flex justify-between items-center group hover:border-red-500 transition-colors">
                              <div>
                                  <span className="text-red-500 font-bold text-sm">VS {lobby.hostName}</span>
-                                 <p className="text-[10px] text-gray-500">ID: {lobby.id}</p>
+                                 <p className="text-[10px] text-gray-500">ID: {lobby.id.substring(0,8)}...</p>
                              </div>
                              <div className="flex items-center gap-4">
                                  <span className="text-white font-mono">{formatCurrency(lobby.wager)}</span>
