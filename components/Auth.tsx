@@ -68,7 +68,8 @@ export const Auth: React.FC = () => {
             alert("OPERATIVE REGISTERED. INITIALIZING LINK...");
             window.location.reload(); 
         } else {
-             alert("VERIFICATION REQUIRED.");
+             // If user creation returns no user object, it usually implies email confirm is required and failed
+             alert("VERIFICATION REQUIRED. CHECK SYSTEM ADMIN.");
         }
 
       } else {
@@ -79,6 +80,7 @@ export const Auth: React.FC = () => {
         });
         if (error) {
             if (error.message.includes("Invalid login")) throw new Error("INVALID CREDENTIALS");
+            if (error.message.includes("Email not confirmed")) throw new Error("IDENTITY UNVERIFIED. DISABLE EMAIL CONFIRMATION IN SUPABASE.");
             throw error;
         }
       }
