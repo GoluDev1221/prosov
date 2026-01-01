@@ -1,13 +1,12 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { useStore } from '../store';
-import { AlertOctagon, Power, Swords, Volume2, VolumeX, ExternalLink, ShieldCheck } from 'lucide-react';
+import { AlertOctagon, Power, Swords, Volume2, VolumeX, ExternalLink, ShieldCheck, Eye, Mic, Activity } from 'lucide-react';
 import { InfoTooltip } from './InfoTooltip';
 
 export const MiningRig: React.FC = () => {
   const { stopMining, miningStartTime, miningMode, callsign } = useStore();
   
-  // Initialize elapsed time based on actual start time to handle refreshes
   const getElapsed = () => {
       if (!miningStartTime) return 0;
       return Math.floor((Date.now() - miningStartTime) / 1000);
@@ -15,131 +14,302 @@ export const MiningRig: React.FC = () => {
 
   const [elapsed, setElapsed] = useState(getElapsed());
   const [failed, setFailed] = useState(false);
+  const [failReason, setFailReason] = useState('');
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [studyMode, setStudyMode] = useState(false);
+  
+  // Panopticon States
+  const [noiseLevel, setNoiseLevel] = useState(0);
+  const [brightness, setBrightness] = useState(100);
+  const [handshakeActive, setHandshakeActive] = useState(false);
+  const [handshakeTimer, setHandshakeTimer] = useState(0);
+  
+  // Refs for Logic (Refs allow synchronous access inside event listeners)
+  const studyModeRef = useRef(false); 
+  const noiseViolationRef = useRef(0);
+  const darknessViolationRef = useRef(0);
+  const wakeLockRef = useRef<any>(null);
+  const lastTickRef = useRef<number>(Date.now());
+  const videoRef = useRef<HTMLVideoElement>(null);
   
   // Audio Refs
   const audioCtxRef = useRef<AudioContext | null>(null);
   const oscRef = useRef<OscillatorNode | null>(null);
   const gainRef = useRef<GainNode | null>(null);
   const sirenIntervalRef = useRef<number | null>(null);
+  
+  // Streams
+  const micStreamRef = useRef<MediaStream | null>(null);
+  const camStreamRef = useRef<MediaStream | null>(null);
+  const analyserRef = useRef<AnalyserNode | null>(null);
 
   const isDuel = miningMode === 'DUEL';
   const themeColor = isDuel ? 'text-red-500' : 'text-[#00f7ff]';
   const borderColor = isDuel ? 'border-red-500' : 'border-[#00f7ff]';
   const shadowColor = isDuel ? 'shadow-[0_0_50px_rgba(239,68,68,0.2)]' : 'shadow-[0_0_50px_rgba(0,247,255,0.2)]';
 
-  // Initialize Audio Context on Mount
+  // --- 1. BIOMETRIC INITIALIZATION (Camera & Mic) ---
   useEffect(() => {
+    const initBiometrics = async () => {
+        try {
+            // Camera (Low res is fine for brightness detection)
+            const vStream = await navigator.mediaDevices.getUserMedia({ video: { width: 100, height: 100, facingMode: 'user' } });
+            camStreamRef.current = vStream;
+            if (videoRef.current) {
+                videoRef.current.srcObject = vStream;
+                videoRef.current.play();
+            }
+
+            // Microphone
+            const aStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            micStreamRef.current = aStream;
+            
+            const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+            const analyser = audioCtx.createAnalyser();
+            const source = audioCtx.createMediaStreamSource(aStream);
+            source.connect(analyser);
+            analyser.fftSize = 256;
+            analyserRef.current = analyser;
+
+        } catch (e) {
+            console.error("Biometric Init Failed", e);
+            // In strict mode (V5), we would fail here. For now, we allow it but warn.
+        }
+    };
+    initBiometrics();
+
+    return () => {
+        if (camStreamRef.current) camStreamRef.current.getTracks().forEach(t => t.stop());
+        if (micStreamRef.current) micStreamRef.current.getTracks().forEach(t => t.stop());
+    };
+  }, []);
+
+  // --- 2. AUDIO & VIDEO ANALYSIS LOOP ---
+  useEffect(() => {
+      const analyze = () => {
+          if (failed) return;
+
+          // A. Audio Analysis (Laughing/Distraction)
+          if (analyserRef.current) {
+              const dataArray = new Uint8Array(analyserRef.current.frequencyBinCount);
+              analyserRef.current.getByteFrequencyData(dataArray);
+              const avg = dataArray.reduce((a, b) => a + b) / dataArray.length;
+              setNoiseLevel(avg);
+
+              // Threshold > 50 roughly catches talking/laughing. 
+              if (avg > 50 && !handshakeActive) { 
+                   noiseViolationRef.current += 1;
+                   // Require ~3 seconds of noise (assuming 60fps ~ 180 frames)
+                   if (noiseViolationRef.current > 180) {
+                        setFailed(true);
+                        setFailReason("AUDIO ANOMALY: SUSTAINED CONVERSATION OR LAUGHTER DETECTED.");
+                   }
+              } else {
+                   noiseViolationRef.current = Math.max(0, noiseViolationRef.current - 1); // Cool down
+              }
+          }
+
+          // B. Video Analysis (Phone Face Down / Darkness)
+          if (videoRef.current) {
+              const canvas = document.createElement('canvas');
+              canvas.width = 10;
+              canvas.height = 10;
+              const ctx = canvas.getContext('2d');
+              if (ctx) {
+                  ctx.drawImage(videoRef.current, 0, 0, 10, 10);
+                  const frame = ctx.getImageData(0, 0, 10, 10);
+                  let totalBrightness = 0;
+                  for (let i = 0; i < frame.data.length; i += 4) {
+                      totalBrightness += (frame.data[i] + frame.data[i + 1] + frame.data[i + 2]) / 3;
+                  }
+                  const avgBrightness = totalBrightness / (frame.data.length / 4);
+                  setBrightness(avgBrightness);
+
+                  if (avgBrightness < 5) { // Total darkness
+                       darknessViolationRef.current += 1;
+                       // Require ~5 seconds of darkness (300 frames) to prevent blink/hand wave failures
+                       if (darknessViolationRef.current > 300) {
+                           setFailed(true);
+                           setFailReason("OPTICAL SENSOR OCCLUDED. KEEP DEVICE VISIBLE.");
+                       }
+                  } else {
+                       darknessViolationRef.current = 0;
+                  }
+              }
+          }
+
+          requestAnimationFrame(analyze);
+      };
+      const raf = requestAnimationFrame(analyze);
+      return () => cancelAnimationFrame(raf);
+  }, [failed, handshakeActive]);
+
+  // --- 3. NEURAL HANDSHAKE (Random Integrity Check) ---
+  useEffect(() => {
+      // Trigger a check every 3-7 minutes randomly
+      const nextCheckTime = Math.random() * (7 - 3) * 60 * 1000 + 3 * 60 * 1000;
+      
+      const timeout = setTimeout(() => {
+          triggerHandshake();
+      }, nextCheckTime);
+
+      return () => clearTimeout(timeout);
+  }, [handshakeActive]); 
+
+  const triggerHandshake = () => {
+      if (failed) return;
+      setHandshakeActive(true);
+      setHandshakeTimer(15); 
+      
+      // Play Alarm Sound
+      const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'square';
+      osc.frequency.setValueAtTime(800, ctx.currentTime);
+      osc.frequency.exponentialRampToValueAtTime(400, ctx.currentTime + 0.5);
+      gain.gain.value = 0.5;
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start();
+      osc.stop(ctx.currentTime + 1);
+  };
+
+  // Handshake Countdown
+  useEffect(() => {
+      let interval: any;
+      if (handshakeActive && handshakeTimer > 0) {
+          interval = setInterval(() => {
+              setHandshakeTimer(prev => prev - 1);
+          }, 1000);
+      } else if (handshakeActive && handshakeTimer <= 0) {
+          setFailed(true);
+          setFailReason("NEURAL HANDSHAKE MISSED. ATTENTION DRIFT DETECTED.");
+          setHandshakeActive(false);
+      }
+      return () => clearInterval(interval);
+  }, [handshakeActive, handshakeTimer]);
+
+
+  // --- 4. STANDARD CHECKS (Wake Lock, Back Button, Visibility) ---
+  useEffect(() => {
+    // Wake Lock
+    const requestWakeLock = async () => {
+      if ('wakeLock' in navigator) {
+        try { wakeLockRef.current = await (navigator as any).wakeLock.request('screen'); } 
+        catch (err) { console.warn('Wake Lock request failed:', err); }
+      }
+    };
+    requestWakeLock();
+
+    // Back Button Trap
+    window.history.pushState(null, '', window.location.href);
+    const handlePopState = () => window.history.pushState(null, '', window.location.href);
+    window.addEventListener('popstate', handlePopState);
+
+    // Visibility & Blur (Split Screen) Protection
+    const handleVisibilityChange = () => {
+      if (studyModeRef.current) return; // SAFEGUARD: Ignore if strictly in study mode
+      if (document.hidden) {
+        setFailed(true);
+        setFailReason(isDuel ? 'FOCUS LOST (BACKGROUNDED).' : 'PROTOCOL BREACH: APP BACKGROUNDED.');
+      }
+    };
+
+    const handleBlur = () => {
+        if (studyModeRef.current) return;
+        // Optional: We can be lenient on blur for desktop users (clicking desktop), 
+        // but for strict mobile mining, blur usually means split screen interaction.
+        // We will warn or fail. Let's Fail to be strict.
+        setFailed(true);
+        setFailReason("FOCUS LOST (WINDOW BLURRED). DO NOT MULTITASK.");
+    };
+    
+    // Hibernation Check
+    const timer = setInterval(() => {
+        if (!miningStartTime) return;
+        const now = Date.now();
+        const delta = now - lastTickRef.current;
+        lastTickRef.current = now;
+
+        if (delta > 5000) {
+             setFailed(true);
+             setFailReason('TEMPORAL ANOMALY: SYSTEM HIBERNATION DETECTED.');
+             clearInterval(timer);
+             return;
+        }
+        setElapsed(Math.floor((now - miningStartTime) / 1000));
+    }, 1000);
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('blur', handleBlur);
+    
+    // Cleanup
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('blur', handleBlur);
+      window.removeEventListener('popstate', handlePopState);
+      if (wakeLockRef.current) wakeLockRef.current.release().catch(() => {});
+      clearInterval(timer);
+    };
+  }, [miningStartTime]);
+
+  // --- AUDIO SIREN FOR FAILURE ---
+  useEffect(() => {
+    // Try to resume audio context if it was suspended (user gesture required policy)
     const initAudio = async () => {
         try {
             const AudioContext = window.AudioContext || (window as any).webkitAudioContext;
             if (!AudioContext) return;
-            
             const ctx = new AudioContext();
             audioCtxRef.current = ctx;
-            
-            // Resume context if suspended (browser policy)
-            if (ctx.state === 'suspended') {
-                try { await ctx.resume(); } catch(e) { console.warn("Audio resume failed", e); }
-            }
-        } catch (e) {
-            console.error("Audio Init Failed", e);
-        }
+            if (ctx.state === 'suspended') await ctx.resume();
+        } catch (e) {}
     };
     initAudio();
-
-    return () => {
-        stopSiren();
-        if (audioCtxRef.current && audioCtxRef.current.state !== 'closed') {
-             audioCtxRef.current.close().catch(() => {});
-        }
-    };
+    return () => { stopSiren(); if (audioCtxRef.current) audioCtxRef.current.close().catch(()=>{}); };
   }, []);
 
   const startSiren = () => {
       if (!soundEnabled || !audioCtxRef.current) return;
-      
       const ctx = audioCtxRef.current;
+      // Re-check resume
+      if (ctx.state === 'suspended') ctx.resume().catch(() => {});
       if (ctx.state === 'closed') return;
 
-      stopSiren(); // Clear existing
-
+      stopSiren();
       try {
           const osc = ctx.createOscillator();
           const gain = ctx.createGain();
-          
           osc.type = 'sawtooth';
-          gain.gain.value = 0.3; 
-          
+          gain.gain.value = 0.3;
           osc.connect(gain);
           gain.connect(ctx.destination);
           osc.start();
-
           oscRef.current = osc;
           gainRef.current = gain;
-
           const modulate = () => {
               if (ctx.state === 'closed') return;
               const now = ctx.currentTime;
-              osc.frequency.cancelScheduledValues(now);
               osc.frequency.setValueAtTime(800, now);
               osc.frequency.linearRampToValueAtTime(1500, now + 0.5);
               osc.frequency.linearRampToValueAtTime(800, now + 1.0);
           };
-
           modulate();
           sirenIntervalRef.current = window.setInterval(modulate, 1000);
-      } catch (e) {
-          console.error("Siren start failed", e);
-      }
+      } catch (e) {}
   };
 
   const stopSiren = () => {
-      if (oscRef.current) {
-          try { oscRef.current.stop(); } catch (e) {}
-          try { oscRef.current.disconnect(); } catch (e) {}
-          oscRef.current = null;
-      }
-      if (gainRef.current) {
-          try { gainRef.current.disconnect(); } catch (e) {}
-          gainRef.current = null;
-      }
-      if (sirenIntervalRef.current) {
-          clearInterval(sirenIntervalRef.current);
-          sirenIntervalRef.current = null;
-      }
+      if (oscRef.current) { try { oscRef.current.stop(); oscRef.current.disconnect(); } catch (e) {} oscRef.current = null; }
+      if (gainRef.current) { try { gainRef.current.disconnect(); } catch (e) {} gainRef.current = null; }
+      if (sirenIntervalRef.current) { clearInterval(sirenIntervalRef.current); sirenIntervalRef.current = null; }
   };
 
   useEffect(() => {
-      if (failed && soundEnabled) {
-          startSiren();
-      } else {
-          stopSiren();
-      }
+      if (failed && soundEnabled) startSiren();
+      else stopSiren();
   }, [soundEnabled, failed]);
-
-  useEffect(() => {
-    const handleVisibilityChange = () => {
-      if (studyMode) return;
-      if (document.hidden) {
-        setFailed(true);
-        if (navigator.vibrate) navigator.vibrate([500, 200, 500]); 
-      }
-    };
-    
-    // Accurate Timer Logic
-    const timer = setInterval(() => {
-        if (!miningStartTime) return;
-        setElapsed(Math.floor((Date.now() - miningStartTime) / 1000));
-    }, 1000);
-
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-    return () => {
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
-      clearInterval(timer);
-    };
-  }, [miningStartTime, studyMode]);
 
   const handleStop = () => {
     stopSiren();
@@ -149,6 +319,7 @@ export const MiningRig: React.FC = () => {
 
   const openStudyPortal = () => {
       setStudyMode(true);
+      studyModeRef.current = true; // Sync ref update to block visibility check
       window.open('https://pw.live', '_blank');
   };
 
@@ -158,31 +329,46 @@ export const MiningRig: React.FC = () => {
     return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
   };
 
+  // --- RENDER ---
+  
   if (failed) {
     return (
       <div className="fixed inset-0 bg-red-900/90 z-50 flex flex-col items-center justify-center animate-pulse">
         <AlertOctagon size={64} className="text-white mb-4" />
         <h1 className="text-4xl font-black text-white tracking-widest mb-2 text-center">BREACH DETECTED</h1>
-        <p className="text-white font-mono mb-8 text-center px-4">
-            {isDuel ? 'FOCUS LOST during combat.' : 'Tab switching violates Deep Work protocol.'}
-        </p>
-        <button 
-          onClick={handleStop}
-          className="bg-black text-white px-8 py-3 font-mono border border-white hover:bg-white hover:text-black font-bold tracking-widest"
-        >
-          ACKNOWLEDGE FAILURE
-        </button>
+        <p className="text-white font-mono mb-8 text-center px-4 max-w-md uppercase font-bold">{failReason}</p>
+        <button onClick={handleStop} className="bg-black text-white px-8 py-3 font-mono border border-white hover:bg-white hover:text-black font-bold tracking-widest">ACKNOWLEDGE FAILURE</button>
       </div>
     );
+  }
+
+  // --- NEURAL HANDSHAKE MODAL ---
+  if (handshakeActive) {
+      return (
+          <div className="fixed inset-0 bg-[#00f7ff] z-50 flex flex-col items-center justify-center animate-pulse">
+              <Activity size={80} className="text-black mb-4 animate-bounce" />
+              <h1 className="text-4xl font-black text-black tracking-widest mb-2 text-center">NEURAL HANDSHAKE</h1>
+              <p className="text-black font-mono font-bold mb-8 text-center px-4">
+                  VERIFY PRESENCE IMMEDIATELY.<br/>
+                  TIME REMAINING: {handshakeTimer}s
+              </p>
+              <button 
+                  onClick={() => { setHandshakeActive(false); }}
+                  className="bg-black text-[#00f7ff] text-2xl px-12 py-6 font-mono border-4 border-black font-bold tracking-widest hover:scale-105 transition-transform"
+              >
+                  ESTABLISH SYNC
+              </button>
+          </div>
+      );
   }
 
   return (
     <div className="fixed inset-0 bg-black z-50 flex flex-col items-center justify-center p-4">
       
-      <button 
-        onClick={() => setSoundEnabled(!soundEnabled)}
-        className="absolute top-4 right-4 text-gray-500 hover:text-white"
-      >
+      {/* Hidden Video for Analysis */}
+      <video ref={videoRef} className="hidden" playsInline muted />
+
+      <button onClick={() => setSoundEnabled(!soundEnabled)} className="absolute top-4 right-4 text-gray-500 hover:text-white">
           {soundEnabled ? <Volume2 /> : <VolumeX />}
       </button>
 
@@ -192,6 +378,28 @@ export const MiningRig: React.FC = () => {
         <div className="flex flex-col items-center">
             <div className={`text-5xl font-mono ${themeColor} font-bold`}>
                 {formatTime(elapsed)}
+            </div>
+            
+            {/* Live Biometric Data */}
+            <div className="flex gap-4 mt-4">
+                <div className="flex flex-col items-center">
+                    <div className={`flex items-center gap-1 text-[10px] ${noiseLevel > 30 ? 'text-red-500 animate-pulse' : 'text-gray-600'}`}>
+                        <Mic size={10} />
+                        {noiseLevel > 30 ? 'NOISE' : 'SILENT'}
+                    </div>
+                    <div className="w-12 h-1 bg-gray-800 mt-1">
+                        <div className="h-full bg-[#00f7ff]" style={{ width: `${Math.min(noiseLevel, 100)}%` }}></div>
+                    </div>
+                </div>
+                <div className="flex flex-col items-center">
+                     <div className={`flex items-center gap-1 text-[10px] ${brightness < 20 ? 'text-red-500' : 'text-gray-600'}`}>
+                        <Eye size={10} />
+                        {brightness < 20 ? 'OCCLUDED' : 'VISUAL'}
+                    </div>
+                     <div className="w-12 h-1 bg-gray-800 mt-1">
+                        <div className="h-full bg-[#00f7ff]" style={{ width: `${Math.min(brightness, 255)/255*100}%` }}></div>
+                    </div>
+                </div>
             </div>
             {studyMode && (
                 <span className="text-[10px] text-green-500 font-bold mt-2 flex items-center gap-1 animate-pulse">
@@ -203,23 +411,13 @@ export const MiningRig: React.FC = () => {
       
       <div className="mt-8 text-center space-y-2">
         <p className="text-gray-500 tracking-widest text-xs flex items-center justify-center">
-            {isDuel ? 'DUEL IN PROGRESS' : 'MINING IN PROGRESS'}
-            <InfoTooltip text="Strict focus enforced. Switching tabs or closing app triggers the Siren and forfeits rewards." />
+            PANOPTICON PROTOCOL ACTIVE
+            <InfoTooltip text="Camera and Mic are active. Sustained noise or covering the camera triggers failure." />
         </p>
         <p className={`${themeColor} text-sm animate-pulse`}>
-            {studyMode ? 'EXTERNAL LINK ACTIVE: PW.LIVE' : 'DO NOT EXIT THE MATRIX'}
+           {studyMode ? 'EXTERNAL LINK: PW.LIVE' : 'SURVEILLANCE ONLINE'}
         </p>
         <p className="text-[10px] text-gray-600">OPERATOR: {callsign}</p>
-      </div>
-
-      <div className="mt-8 w-full max-w-xs">
-          <div className="flex justify-between text-xs text-gray-600 mb-1">
-              <span>YIELD</span>
-              <span>{isDuel ? 'WINNER TAKES ALL' : `EST. +$${Math.floor(elapsed / 60) * 10}`}</span>
-          </div>
-          <div className="h-1 bg-gray-900 w-full">
-              <div className={`h-full ${isDuel ? 'bg-red-500' : 'bg-[#00f7ff]'} transition-all`} style={{ width: `${(elapsed % 60) / 60 * 100}%` }}></div>
-          </div>
       </div>
 
       <div className="mt-12 flex flex-col gap-4 w-full max-w-xs">
