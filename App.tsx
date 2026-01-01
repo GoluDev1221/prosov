@@ -15,12 +15,13 @@ import { Auth } from './components/Auth';
 import { Shield, Map, Cpu, ShoppingBag, Swords, Terminal, Wifi, Radio, Users, WifiOff } from 'lucide-react';
 
 const App: React.FC = () => {
-  const { id, archetype, isMining, updateDecay, connectToNetwork, onlineStatus, activeUsers, showManual, showProfile } = useStore();
+  const { id, archetype, isMining, updateDecay, connectToNetwork, onlineStatus, activeUsers, showManual, showProfile, checkIntegrity } = useStore();
   const [currentView, setCurrentView] = useState<'COMMAND' | 'INTEL' | 'MARKET' | 'ARENA' | 'SYNDICATE'>('COMMAND');
   const [defcon, setDefcon] = useState(5);
 
   // Initialize checks
   useEffect(() => {
+    checkIntegrity(); // Validate session on load
     updateDecay();
     const days = getDaysRemaining();
     setDefcon(getDefconLevel(days));
